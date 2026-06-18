@@ -5,6 +5,8 @@ Combines: Convert to PDF, Merge PDF, Split PDF, Rotate PDF,
           Protect PDF, Unprotect PDF, Convert to PDF_Precise,
           Combine PDF Pages, Extract PDF Pages
 
+Author: Yeoh Huey Sun
+
 Output folders (auto-created in same folder as script/exe):
   To PDF\     - Convert to PDF / Convert to PDF_Precise
   Merged\     - Merge PDF
