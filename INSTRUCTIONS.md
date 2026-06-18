@@ -269,8 +269,10 @@ Format: `v{major}.{minor}_{YYYYMMDD}`. Current: `v1.0_20260615`. Update in the `
 
 ```bash
 pip install pyinstaller
-pyinstaller --onefile "PDF Tools.py"
+pyinstaller --onefile --version-file=version_info.txt "PDF Tools.py"
 ```
+
+`version_info.txt` embeds author/version info into the exe's Windows Properties > Details tab — this is what survives if the `.exe` ever gets forwarded on its own, with no source code or docs attached. Without `--version-file`, those Properties fields are blank.
 
 Output: `dist/PDF Tools.exe`. The `build/` folder can be deleted after packaging; keep the generated `.spec` file for faster repeat builds (`pyinstaller "PDF Tools.spec"`).
 
