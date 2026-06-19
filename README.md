@@ -32,6 +32,14 @@ Full walkthrough — selection syntax (`a1, b2, c4-6`), menu screenshots, and tr
 - `pip install pypdf`
 - `pip install pywin32` — only needed for tools **1** and **7**
 
+## Before you run
+
+1. Create a folder anywhere (e.g. C:\PDF Tools\)
+2. Put PDF Tools.py in that folder
+3. Put the files you want to process in the same folder
+4. Double-click PDF Tools.py — if Windows shows a SmartScreen warning, click "More info" then "Run anyway"
+
+
 ## Run
 
 ```bash
