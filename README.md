@@ -40,6 +40,8 @@ python "PDF Tools.py"
 
 Or grab a pre-built Windows `.exe` from the [Releases](../../releases) page — no Python install needed.
 
+Windows may show a SmartScreen warning on first run — click "More info" then "Run anyway".
+
 ## Platform support
 
 | Tools | Engine | Platform |
@@ -57,5 +59,6 @@ The password you set is included in the output filename (e.g. `Report_pw_ABCd123
 
 ---
 
-**Author:** Yeoh Huey Sun [@greyw901](https://github.com) <br>
-**Email**: greyw901@gmail.com
+**Author:** Yeoh Huey Sun
+**Email:** greyw901@gmail.com
+**GitHub:** https://github.com/greyw901

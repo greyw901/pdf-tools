@@ -166,6 +166,7 @@ Genuine failures (corrupted file, wrong password, etc.) are listed separately at
 | Wrong password on Unprotect | Check the filename for the `_pw_PASSWORD` hint |
 | File listed under "Skipped (no password)" | Tool 6 only — this file was never password-protected; nothing to do |
 | Antivirus blocks the `.exe` | Unsigned binary — whitelist it with your antivirus/IT if needed |
+| Windows says "Windows protected your PC" | SmartScreen flag on unsigned executables — click "More info" then "Run anyway" |
 
 ---
 
@@ -300,7 +301,9 @@ Python 3.8+. Microsoft Excel and Word required on the machine running the script
 - Rotate PDF (Tool 4) applies one angle per run. For mixed angles, run the tool again on the output.
 
 ---
+**Version:** v1.0_20260615
 
-**Version:** v1.0_20260615 <br>
-**Author:** Yeoh Huey Sun ([GitHub](https://github.com)) <br>
-**Email:** greyw901@gmail.com 
+**Author:** Yeoh Huey Sun
+**Email:** greyw901@gmail.com
+**GitHub:** https://github.com/greyw901
+
