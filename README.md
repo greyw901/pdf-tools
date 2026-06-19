@@ -38,6 +38,8 @@ Full walkthrough — selection syntax (`a1, b2, c4-6`), menu screenshots, and tr
 python "PDF Tools.py"
 ```
 
+## Pre-built Windows .exe 
+
 Or grab a pre-built Windows `.exe` from the [Releases](../../releases) page — no Python install needed.
 
 Windows may show a SmartScreen warning on first run — click "More info" then "Run anyway".
