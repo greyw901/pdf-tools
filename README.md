@@ -57,4 +57,5 @@ The password you set is included in the output filename (e.g. `Report_pw_ABCd123
 
 ---
 
-**Developed by:** Yeoh Huey Sun
+**Author:** Yeoh Huey Sun [@greyw901](https://github.com)
+**Email**: greyw901@gmail.com
