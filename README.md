@@ -1,6 +1,6 @@
 # PDF Tools
 
-A single-file, menu-driven command-line utility for everyday PDF work — convert, merge, split, rotate, protect, unprotect, combine, and extract pages.
+A free, single-file, menu-driven command-line utility for everyday PDF work — convert, merge, split, rotate, protect, unprotect, combine, and extract pages.
 
 ## Why this exists
 
