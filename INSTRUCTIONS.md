@@ -302,5 +302,5 @@ Python 3.8+. Microsoft Excel and Word required on the machine running the script
 ---
 
 **Version:** v1.0_20260615 <br>
-**Author:** Yeoh Huey Sun <br>
+**Author:** Yeoh Huey Sun ([GitHub](https://github.com)) <br>
 **Email:** greyw901@gmail.com 
