@@ -53,8 +53,6 @@ Anything in `[ ]` is a key you press. `[0]` always cancels and takes you back.
 | 8 | Selective Combine | Picks specific pages across multiple PDFs into one output, in the order you type |
 | 9 | Selective Extract | Pulls specific pages out of PDFs as separate files |
 
-A plain-text copy of the guide, for people who just want the .exe, is in [PDF Tools Instruction.txt](PDF%20Tools%20Instruction.txt).
-
 Full walkthrough — selection syntax (`1, 3, 4-6` for files, `a1, b2, c4-6` for pages), screens, and troubleshooting — is in [INSTRUCTIONS.md](INSTRUCTIONS.md).
 
 ## Requirements
