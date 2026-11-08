@@ -1,42 +1,97 @@
 r"""
-------------
 Master launcher for all PDF tools.
-Combines: Convert to PDF, Merge PDF, Split PDF, Rotate PDF,
-          Protect PDF, Unprotect PDF, Convert to PDF_Precise,
-          Combine PDF Pages, Extract PDF Pages
+Tools: Convert to PDF, Merge PDF, Split PDF, Rotate PDF, Protect PDF,
+       Unprotect PDF, Convert to PDF Precise, Selective Combine,
+       Selective Extract
+
+Every tool follows the same flow: pick files (or pages) -> confirm summary
+-> process -> run report. Nothing is processed before the summary is confirmed.
 
 Author: Yeoh Huey Sun
 Email:  greyw901@gmail.com
 GitHub: https://github.com/greyw901
 
 Output folders (auto-created in same folder as script/exe):
-  To PDF\     - Convert to PDF / Convert to PDF_Precise
-  Merged\     - Merge PDF
-  Split\      - Split PDF
-  Extract\    - Extract PDF Pages
-  Combined\   - Combine PDF Pages
-  Protected\  - Protect PDF
-  Unprotected\ - Unprotect PDF
-  Rotated\    - Rotate PDF
+  To PDF\       - Convert to PDF / Convert to PDF Precise
+  Merged\       - Merge PDF
+  Split\        - Split PDF
+  Rotated\      - Rotate PDF
+  Protected\    - Protect PDF
+  Unprotected\  - Unprotect PDF
+  Combined\     - Selective Combine
+  Extract\      - Selective Extract
 """
 
-import os
-import sys
-import re
-import logging
+from __future__ import annotations
+
 import datetime
-from itertools import product
+import logging
+import os
+import re
+import shutil
+import sys
+import tempfile
+import time
+import traceback
+import warnings
+from dataclasses import dataclass, field
+from itertools import count, product
+from typing import Callable, Optional
+
+# ══════════════════════════════════════════════════════════
+#  CONSTANTS
+# ══════════════════════════════════════════════════════════
+VERSION       = "v2.0_20261108"
+LINE_WIDTH    = 50                       # banner / divider width
+MAX_LISTED    = 20                       # longest numbered list printed before "... and n more"
+EXCEL_EXTS    = {".xls", ".xlsx", ".xlsm", ".xlsb"}
+WORD_EXTS     = {".doc", ".docx"}
+PW_MARK       = "_pw_"                   # Protect PDF writes the password into the filename after this
+BAD_NAME_CHARS = '\\/:*?"<>|'            # cannot appear in a Windows filename (password goes in the name)
+SELECT_SPLIT  = re.compile(r"[\s,]+")
+OUT_FOLDERS   = {
+    "convert": "To PDF", "merge": "Merged", "split": "Split", "rotate": "Rotated",
+    "protect": "Protected", "unprotect": "Unprotected",
+    "combine": "Combined", "extract": "Extract",
+}
 
 logging.getLogger("pypdf").setLevel(logging.ERROR)
+warnings.filterwarnings("ignore")
 
-# ── Path resolution (works for .py and PyInstaller .exe) ──
-def get_script_dir():
+
+# ══════════════════════════════════════════════════════════
+#  SIGNALS (exceptions) - single catch site: run_tool() / main()
+# ══════════════════════════════════════════════════════════
+class UserCancelled(Exception):
+    """User pressed [0] at a prompt: abandon the tool, back to the menu (no tail)."""
+
+
+class NoInput(Exception):
+    """Nothing to process (no files found). Message is printed, then the normal tail."""
+
+
+class ExitSession(Exception):
+    """User chose to leave the program from the tail. Caught in main()."""
+
+    def __init__(self, saved_log: Optional[str] = None) -> None:
+        super().__init__("exit")
+        self.saved_log = saved_log
+
+
+class SkipItem(Exception):
+    """Raised by a worker: item needs no action. Reported under Skipped, not Failed."""
+
+
+# ══════════════════════════════════════════════════════════
+#  SHARED: paths, naming
+# ══════════════════════════════════════════════════════════
+def get_script_dir() -> str:
     return os.path.dirname(os.path.abspath(
-        sys.executable if getattr(sys, 'frozen', False) else __file__
+        sys.executable if getattr(sys, "frozen", False) else __file__
     ))
 
-# ── Shared utilities ───────────────────────────────────────
-def get_unique_path(folder, name):
+
+def get_unique_path(folder: str, name: str) -> str:
     candidate = os.path.join(folder, name)
     if not os.path.exists(candidate):
         return candidate
@@ -48,11 +103,15 @@ def get_unique_path(folder, name):
             return candidate
         counter += 1
 
-def get_pdf_files(folder):
-    return sorted([
+
+def list_files(folder: str, exts: set) -> list:
+    return sorted(
         f for f in os.listdir(folder)
-        if f.lower().endswith(".pdf") and os.path.isfile(os.path.join(folder, f))
-    ])
+        if os.path.splitext(f)[1].lower() in exts
+        and not f.startswith("~$")                       # Office lock files
+        and os.path.isfile(os.path.join(folder, f))
+    )
+
 
 def prefix_generator():
     letters = "abcdefghijklmnopqrstuvwxyz"
@@ -62,1130 +121,934 @@ def prefix_generator():
             yield "".join(combo)
         length += 1
 
+
+def number_generator():
+    """File-level tools: files are picked by number (1, 2, 3 ...)."""
+    return (str(n) for n in count(1))
+
+
+def stem_of(name: str) -> str:
+    return os.path.splitext(name)[0]
+
+
+def dedupe(seq: list) -> list:
+    seen, out = set(), []
+    for x in seq:
+        if x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
+
+
 # ══════════════════════════════════════════════════════════
-#  TOOL 1 — Convert to PDF
+#  SHARED: file index (codes a, a1, a2 ...) and selection
 # ══════════════════════════════════════════════════════════
-def tool_convert_to_pdf(script_dir):
-    import win32com.client
+@dataclass(eq=False)                             # identity hash: entries go into sets
+class Entry:
+    prefix: str
+    path: str
+    name: str
+    kind: str                                   # "pdf" | "excel" | "word"
+    count: int = 0                              # pages / sheets (0 when not scanned)
+    unit_label: str = ""                        # "Pages" / "Sheets"
+    unit_word: str = ""                         # "page" / "sheet"
+    unit_names: list = field(default_factory=list)
 
-    out_folder = os.path.join(script_dir, "To PDF")
-    os.makedirs(out_folder, exist_ok=True)
 
-    excel_exts = {".xls", ".xlsx", ".xlsm", ".xlsb"}
-    word_exts  = {".doc", ".docx"}
-    excel_files, word_files = [], []
+@dataclass
+class Token:
+    text: str
+    prefix: Optional[str] = None                # set when the token is a whole file
+    codes: list = field(default_factory=list)   # unit codes (unit-level selection only)
 
-    for fname in sorted(os.listdir(script_dir)):
-        fpath = os.path.join(script_dir, fname)
-        if not os.path.isfile(fpath):
+
+class Index:
+    def __init__(self, entries: list) -> None:
+        self.entries = entries
+        self.by_prefix = {e.prefix: e for e in entries}
+        self.code_map = {}
+        for e in entries:
+            for i in range(e.count):
+                self.code_map[f"{e.prefix}{i + 1}"] = (e, i)
+
+    def codes_of(self, prefix: str) -> list:
+        e = self.by_prefix[prefix]
+        return [f"{prefix}{i + 1}" for i in range(e.count)]
+
+    def display_lines(self, level: str) -> list:
+        lines = []
+        for e in self.entries:
+            if level == "file":
+                lines.append(f'  [{e.prefix}] - "{e.name}"')
+            else:
+                span = f"{e.prefix}1" if e.count == 1 else f"{e.prefix}1-{e.prefix}{e.count}"
+                lines.append(f'  {e.prefix} {e.unit_label}: [{span}] - "{e.name}"')
+                for i, n in enumerate(e.unit_names, start=1):
+                    lines.append(f"      {e.prefix}{i} - {n}")
+        return lines
+
+
+def numbered(items: list, limit: Optional[int] = MAX_LISTED) -> list:
+    shown = items if limit is None else items[:limit]
+    lines = [f"   {i}. {s}" for i, s in enumerate(shown, start=1)]
+    if limit is not None and len(items) > limit:
+        lines.append(f"   ... and {len(items) - limit} more")
+    return lines
+
+
+def failure_lines(pairs: list) -> list:
+    return [f'   {i}. "{n}"   :   {r}' for i, (n, r) in enumerate(pairs, start=1)]
+
+
+def ask(valid: set) -> str:
+    """Read one choice; anything outside `valid` is rejected and re-asked."""
+    while True:
+        raw = input().strip().lower()
+        if raw in valid:
+            return raw
+        print(f'Invalid Input: "{raw}"')
+
+
+def show_unreadable(unreadable: list) -> None:
+    print(f"\nUnreadable: {len(unreadable)}")
+    for line in failure_lines(unreadable):
+        print(line)
+    print("\n[Enter] - Skip & Continue")
+    print("[0] - Cancel & Return to Menu")
+    if ask({"", "0"}) == "0":
+        raise UserCancelled()
+
+
+def finalize_index(entries: list, unreadable: list, noun: str) -> Index:
+    if not entries and not unreadable:
+        raise NoInput(f"No {noun} files found.")
+    if unreadable:
+        show_unreadable(unreadable)
+    if not entries:
+        raise NoInput(f"No readable {noun} files found.")
+    return Index(entries)
+
+
+def scan_pdf_index(script_dir: str, count_pages: bool) -> Index:
+    """Index the PDFs in the folder once. count_pages=False lists names only (file-level tools)."""
+    from pypdf import PdfReader
+    gen = prefix_generator() if count_pages else number_generator()
+    entries, unreadable = [], []
+    for name in list_files(script_dir, {".pdf"}):
+        path = os.path.join(script_dir, name)
+        if not count_pages:
+            entries.append(Entry(next(gen), path, name, "pdf"))
             continue
-        ext = os.path.splitext(fname)[1].lower()
-        if ext in excel_exts:
-            excel_files.append(fpath)
-        elif ext in word_exts:
-            word_files.append(fpath)
-
-    if not excel_files and not word_files:
-        print("No Excel or Word files found.")
-        return
-
-    errors = []
-
-    if excel_files:
-        print("Starting Excel...\n")
-        xl_app = win32com.client.Dispatch("Excel.Application")
-        xl_app.Visible = False
-        xl_app.DisplayAlerts = False
         try:
-            for fpath in excel_files:
-                fname     = os.path.basename(fpath)
-                base_name = os.path.splitext(fname)[0]
-                out_path  = get_unique_path(out_folder, base_name + ".pdf")
-                print(f"  {fname}  ->  {os.path.basename(out_path)}")
-                try:
-                    wb = xl_app.Workbooks.Open(fpath, ReadOnly=True, UpdateLinks=False)
-                    visible = [s.Name for s in wb.Sheets if s.Visible == -1]
-                    if not visible:
-                        print(f"ERROR: No visible sheets found. ({fname})")
-                        wb.Close(SaveChanges=False)
-                        continue
-                    wb.ExportAsFixedFormat(Type=0, Filename=out_path, Quality=0,
-                                           IncludeDocProperties=True,
-                                           IgnorePrintAreas=False, OpenAfterPublish=False)
-                    wb.Close(SaveChanges=False)
-                except Exception as e:
-                    print(f"ERROR: pywintypes.com_error - Could be: file is open in another program / corrupted / Excel frozen. ({fname})")
-                    print(f"Error Details: {e}")
-                    errors.append(fname)
-        finally:
-            xl_app.Quit()
-
-    if word_files:
-        print("\nStarting Word...\n")
-        wd_app = win32com.client.Dispatch("Word.Application")
-        wd_app.Visible = False
-        wd_app.DisplayAlerts = False
-        try:
-            for fpath in word_files:
-                fname     = os.path.basename(fpath)
-                base_name = os.path.splitext(fname)[0]
-                out_path  = get_unique_path(out_folder, base_name + ".pdf")
-                print(f"  {fname}  ->  {os.path.basename(out_path)}")
-                try:
-                    doc = wd_app.Documents.Open(fpath, ReadOnly=True, AddToRecentFiles=False)
-                    doc.ExportAsFixedFormat(OutputFileName=out_path, ExportFormat=17,
-                                            OpenAfterExport=False, OptimizeFor=0, Range=0,
-                                            IncludeDocProps=True, CreateBookmarks=0,
-                                            DocStructureTags=True)
-                    doc.Close(SaveChanges=False)
-                except Exception as e:
-                    print(f"ERROR: pywintypes.com_error - Could be: file is open in another program / corrupted / Word frozen. ({fname})")
-                    print(f"Error Details: {e}")
-                    errors.append(fname)
-        finally:
-            wd_app.Quit()
-
-    if errors:
-        print(f"\nFailed:")
-        for f in errors:
-            print(f'  "{f}"')
-
-    print(f"\nOutput: To PDF\\")
-    print("\nDone.")
-
-# ══════════════════════════════════════════════════════════
-#  TOOL 2 — Merge PDF
-# ══════════════════════════════════════════════════════════
-def tool_merge_pdf(script_dir):
-    from pypdf import PdfWriter, PdfReader
-
-    out_folder = os.path.join(script_dir, "Merged")
-    os.makedirs(out_folder, exist_ok=True)
-
-    pdf_files = get_pdf_files(script_dir)
-    if not pdf_files:
-        print("No PDF files found.")
-        return
-
-    first_stem = os.path.splitext(pdf_files[0])[0]
-    out_name   = first_stem + "_merged.pdf"
-    out_path   = get_unique_path(out_folder, out_name)
-
-    print(f"Merging {len(pdf_files)} file(s):")
-    for f in pdf_files:
-        print(f"  {f}")
-
-    writer = PdfWriter()
-    errors = []
-    for fname in pdf_files:
-        fpath = os.path.join(script_dir, fname)
-        try:
-            reader = PdfReader(fpath)
-            for page in reader.pages:
-                writer.add_page(page)
+            reader = PdfReader(path)
+            if reader.is_encrypted:
+                raise ValueError("file is password-protected")
+            n = len(reader.pages)
+            if n == 0:
+                raise ValueError("file has no pages")
         except Exception as e:
-            errors.append(fname)
+            unreadable.append((name, f"{type(e).__name__} - {e}"))
+            continue
+        entries.append(Entry(next(gen), path, name, "pdf", n, "Pages", "page"))
+    return finalize_index(entries, unreadable, "PDF")
 
-    if len(errors) == len(pdf_files):
-        print("\nAll files failed — output not written.")
-        return
 
-    with open(out_path, "wb") as f:
+def parse_tokens(raw: str, index: Index, level: str) -> tuple:
+    """level 'file': 1, 3, 4-6 (files by number).  level 'unit': a, a1, a1-a9, a1-9 (pages/sheets)."""
+    tokens, invalid = [], []
+    order = [e.prefix for e in index.entries]
+    for text in filter(None, SELECT_SPLIT.split(raw.strip().lower())):
+        if text in index.by_prefix:
+            codes = index.codes_of(text) if level == "unit" else []
+            tokens.append(Token(text, prefix=text, codes=codes))
+            continue
+        if level == "file":
+            m = re.fullmatch(r"(\d+)-(\d+)", text)
+            if m and m.group(1) in order and m.group(2) in order:
+                i, j = order.index(m.group(1)), order.index(m.group(2))
+                if i <= j:
+                    tokens.extend(Token(p, prefix=p) for p in order[i:j + 1])
+                    continue
+            invalid.append(text)
+            continue
+        m = re.fullmatch(r"([a-z]+)(\d+)-(?:([a-z]+))?(\d+)", text)
+        if m:
+            p1, n1, p2, n2 = m.group(1), int(m.group(2)), m.group(3) or m.group(1), int(m.group(4))
+            if p1 == p2 and p1 in index.by_prefix and 1 <= n1 <= n2 <= index.by_prefix[p1].count:
+                tokens.append(Token(text, codes=[f"{p1}{n}" for n in range(n1, n2 + 1)]))
+                continue
+            invalid.append(text)
+            continue
+        if text in index.code_map:
+            tokens.append(Token(text, codes=[text]))
+            continue
+        invalid.append(text)
+    return tokens, invalid
+
+
+def prompt_selection(index: Index, level: str, example: str, enter_label: str = "Select all") -> list:
+    """Show the list, read a selection. Returns tokens; raises UserCancelled on [0]."""
+    while True:
+        print("\n" + "\n".join(index.display_lines(level)) + "\n")
+        print(f"[Selections] - e.g. [{example}]")
+        print(f"[Enter] - {enter_label}")
+        print("[0] - Cancel & Return to Menu")
+        raw = input().strip()
+        if raw == "0":
+            raise UserCancelled()
+        if not raw:
+            return [Token(e.prefix, prefix=e.prefix,
+                          codes=index.codes_of(e.prefix) if level == "unit" else [])
+                    for e in index.entries]
+        tokens, invalid = parse_tokens(raw, index, level)
+        if invalid:
+            print("\nInvalid Input: " + ", ".join(f'"{t}"' for t in invalid))
+            print("[Enter] - Skip Invalid Input & Continue")
+            print("[N] - Re-enter")
+            print("[0] - Cancel & Return to Menu")
+            choice = ask({"", "n", "0"})
+            if choice == "0":
+                raise UserCancelled()
+            if choice == "n":
+                continue
+        if not tokens:
+            print("\nNo valid selection.")
+            continue
+        return tokens
+
+
+def files_of(tokens: list, index: Index) -> list:
+    return dedupe([index.by_prefix[t.prefix] for t in tokens if t.prefix])
+
+
+def flatten_codes(tokens: list) -> list:
+    return [c for t in tokens for c in t.codes]
+
+
+def group_by_entry(codes: list, index: Index) -> list:
+    """[(entry, sorted unique 0-based unit indexes)] in order of first appearance."""
+    groups = {}
+    for c in codes:
+        e, i = index.code_map[c]
+        groups.setdefault(e.prefix, (e, set()))[1].add(i)
+    return [(e, sorted(idxs)) for e, idxs in groups.values()]
+
+
+def unit_summary_lines(codes: list, index: Index) -> list:
+    """Per-file heading, then code lines; consecutive units collapse into a run (a1-a12)."""
+    lines, last, i = [], None, 0
+    while i < len(codes):
+        entry, idx = index.code_map[codes[i]]
+        j = i
+        while j + 1 < len(codes):
+            e2, i2 = index.code_map[codes[j + 1]]
+            if e2 is entry and i2 == index.code_map[codes[j]][1] + 1:
+                j += 1
+            else:
+                break
+        if entry.prefix != last:
+            lines.append(f"  {entry.name}")
+            last = entry.prefix
+        if i == j:
+            lines.append(f"    {codes[i]} - {entry.unit_word} {idx + 1}")
+        else:
+            end = index.code_map[codes[j]][1]
+            lines.append(f"    {codes[i]}-{codes[j]} - {entry.unit_word}s {idx + 1}-{end + 1}")
+        i = j + 1
+    return lines
+
+
+def confirm(title: str, lines: list) -> bool:
+    """Summary + [Enter]/[N]/[0]. True = proceed, False = re-enter (back to selection)."""
+    print(f"\n{title}:")
+    for line in lines:
+        print(line)
+    print()
+    print("[Enter] - Proceed")
+    print("[N] - Re-enter")
+    print("[0] - Cancel & Return to Menu")
+    choice = ask({"", "n", "0"})
+    if choice == "0":
+        raise UserCancelled()
+    return choice == ""
+
+
+def prompt_password(label: str, forbid_name_chars: bool) -> str:
+    """Visible password entry. [0] cancels (so "0" itself cannot be used as a password)."""
+    print(f"\n{label}:")
+    print("[0] - Cancel & Return to Menu")
+    while True:
+        pw = input()
+        if pw == "0":
+            raise UserCancelled()
+        if not pw:
+            print('Invalid Input: ""')
+        elif forbid_name_chars and any(c in BAD_NAME_CHARS for c in pw):
+            print(f'Invalid Input: "{pw}"   :   password goes into the filename, cannot contain {BAD_NAME_CHARS}')
+        else:
+            return pw
+
+
+# ══════════════════════════════════════════════════════════
+#  SHARED: processing loop, run report, error log
+# ══════════════════════════════════════════════════════════
+def make_failure(item: str, step: str, context: str, exc: Exception) -> dict:
+    # Must be called inside the except block: format_exc() is empty outside it.
+    return {
+        "item": item,
+        "step": step,
+        "error": f"{type(exc).__name__} - {exc}",
+        "context": context,
+        "trace": traceback.format_exc(),
+    }
+
+
+def run_items(items: list, step: str, worker: Callable, name_of: Callable,
+              context_of: Optional[Callable] = None) -> tuple:
+    """The loop prints nothing; the worker returns output names. -> (outputs, skipped, failures)"""
+    outputs, skipped, failures = [], [], []
+    for item in items:
+        name = name_of(item)
+        try:
+            outputs.extend(worker(item))
+        except SkipItem as s:
+            skipped.append((name, str(s)))
+        except Exception as e:
+            ctx = context_of(item) if context_of else ""
+            path = getattr(item, "path", None) or (item[0].path if isinstance(item, tuple) and hasattr(item[0], "path") else None)
+            if path:                                    # file facts the log needs to diagnose without the input
+                try:
+                    size = f"{os.path.getsize(path)} bytes"
+                except OSError:
+                    size = "size unknown"
+                ctx = "; ".join(x for x in (ctx, f'file = "{path}"', f"size = {size}") if x)
+            failures.append(make_failure(name, step, ctx, e))
+    return outputs, skipped, failures
+
+
+def announce(script_dir: str, out_folder: str) -> None:
+    os.makedirs(out_folder, exist_ok=True)
+    print(f"\nInput folder : {script_dir}")
+    print(f"Output folder: {out_folder}")
+
+
+def begin(stage: str) -> float:
+    """Stage line - call it as the statement right before the work it names."""
+    print("\nProcessing")
+    print(f"{stage} ...")
+    return time.time()
+
+
+def write_error_log(tool_name: str, failures: list, folder: str) -> str:
+    stamp = datetime.datetime.now().strftime("%Y%m%d")
+    path = get_unique_path(folder, f"error log_{stamp}.txt")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(f"Tool: {tool_name}\n\n")
+        for r in failures:
+            f.write(f'"{r["item"]}"\n')
+            f.write(f'  Step: {r["step"]}\n')
+            f.write(f'  Error: {r["error"]}\n')
+            f.write(f'  Context: {r["context"]}\n')
+            f.write("  Traceback:\n")
+            for line in r["trace"].rstrip().splitlines():
+                f.write(f"    {line}\n")
+            f.write("\n")
+    return os.path.basename(path)
+
+
+def tail(tool_name: str, script_dir: str, failures: list) -> None:
+    print("\n" + "-" * LINE_WIDTH)
+    print("[Enter] - Continue to Menu")
+    print("[0] - Save error log and Exit Session" if failures else "[0] - Exit Session")
+    if ask({"", "0"}) == "0":
+        saved = write_error_log(tool_name, failures, script_dir) if failures else None
+        raise ExitSession(saved)
+
+
+def finish(tool_name: str, script_dir: str, t0: float, outputs: list,
+           skipped: list, failures: list) -> None:
+    print(f"\nOutputs: {len(outputs)}")
+    for line in numbered([f'"{o}"' for o in outputs]):
+        print(line)
+    if skipped:
+        print(f"\nSkipped: {len(skipped)}")
+        for line in failure_lines(skipped):
+            print(line)
+    if failures:
+        print(f"\nFailed: {len(failures)}")
+        for line in failure_lines([(r["item"], r["error"]) for r in failures]):
+            print(line)
+    print(f"\nElapsed: {time.time() - t0:.1f}s")
+    tail(tool_name, script_dir, failures)
+
+
+def write_pdf(writer, path: str) -> None:
+    with open(path, "wb") as f:
         writer.write(f)
 
-    print(f"\nOutput: Merged\\")
-    print(out_name)
-
-    if errors:
-        print(f"\nFailed:")
-        for f in errors:
-            print(f'  "{f}"')
-
-    print("\nDone.")
 
 # ══════════════════════════════════════════════════════════
-#  TOOL 3 — Split PDF
+#  SHARED: Office (COM) helpers - used by Convert to PDF / Precise
 # ══════════════════════════════════════════════════════════
-def tool_split_pdf(script_dir):
-    from pypdf import PdfWriter, PdfReader
+class OfficeApps:
+    """Starts Excel / Word on first use, quits them in close(). One COM instance per app."""
 
-    out_folder = os.path.join(script_dir, "Split")
-    os.makedirs(out_folder, exist_ok=True)
+    def __init__(self) -> None:
+        self._apps = {}
 
-    pdf_files = get_pdf_files(script_dir)
-    if not pdf_files:
-        print("No PDF files found.")
-        return
+    def get(self, kind: str):
+        if kind not in self._apps:
+            import win32com.client
+            app = win32com.client.Dispatch("Excel.Application" if kind == "excel" else "Word.Application")
+            app.Visible = False
+            app.DisplayAlerts = False
+            self._apps[kind] = app
+        return self._apps[kind]
 
-    print(f"Splitting {len(pdf_files)} file(s):\n")
-    errors = []
-    for fname in pdf_files:
-        fpath = os.path.join(script_dir, fname)
-        stem  = os.path.splitext(fname)[0]
-        try:
-            reader = PdfReader(fpath)
-            print(f"  (Pages: {len(reader.pages)}) {fname}")
-            for i, page in enumerate(reader.pages, start=1):
-                writer = PdfWriter()
-                writer.add_page(page)
-                out_path = get_unique_path(out_folder, f"{stem}_{i}.pdf")
-                with open(out_path, "wb") as f:
-                    writer.write(f)
-        except Exception as e:
-            errors.append(fname)
+    def close(self) -> None:
+        for app in self._apps.values():
+            try:
+                app.Quit()
+            except Exception:
+                pass
+        self._apps = {}
 
-    if errors:
-        print(f"\nFailed:")
-        for f in errors:
-            print(f'  "{f}"')
 
-    print(f"\nOutput: Split\\")
-    print("\nDone.")
+def excel_export(app, src: str, out_path: str, keep_sheets: Optional[list]) -> None:
+    wb = app.Workbooks.Open(src, ReadOnly=True, UpdateLinks=False)
+    try:
+        visible = [s.Name for s in wb.Sheets if s.Visible == -1]
+        if not visible:
+            raise ValueError("no visible sheets")
+        if keep_sheets is not None:
+            for s in wb.Sheets:                       # hide the rest; workbook closes unsaved
+                if s.Visible == -1 and s.Name not in keep_sheets:
+                    s.Visible = False
+        wb.ExportAsFixedFormat(Type=0, Filename=out_path, Quality=0,
+                               IncludeDocProperties=True,
+                               IgnorePrintAreas=False, OpenAfterPublish=False)
+    finally:
+        wb.Close(SaveChanges=False)
 
-# ══════════════════════════════════════════════════════════
-#  TOOL 4 — Protect PDF
-# ══════════════════════════════════════════════════════════
-def tool_protect_pdf(script_dir):
+
+def word_export(app, src: str, out_path: str, keep_pages: Optional[list]) -> None:
+    """keep_pages: 0-based page indexes, or None for the whole document."""
     from pypdf import PdfReader, PdfWriter
-
-    out_folder = os.path.join(script_dir, "Protected")
-    os.makedirs(out_folder, exist_ok=True)
-
-    pdf_files = get_pdf_files(script_dir)
-    if not pdf_files:
-        print("No PDF files found.")
-        return
-
-    print(f"Found {len(pdf_files)} PDF file(s):\n")
-    for f in pdf_files:
-        print(f"  {f}")
-
-    print()
-    password = input("Enter password to apply: ")
-    if not password:
-        print("No password entered. Aborted.")
-        return
-
-    print()
-    errors  = []
-    success = []
-    for fname in pdf_files:
-        fpath = os.path.join(script_dir, fname)
-        stem  = os.path.splitext(fname)[0]
-        if "_pw_" in stem:
-            print(f"Skipped (already protected): {fname}")
-            continue
-        out_name = f"{stem}_pw_{password}.pdf"
-        out_path = get_unique_path(out_folder, out_name)
-        try:
-            reader = PdfReader(fpath)
+    doc = app.Documents.Open(src, ReadOnly=True, AddToRecentFiles=False)
+    tmp_dir = tempfile.mkdtemp() if keep_pages is not None else None
+    try:
+        target = out_path if keep_pages is None else os.path.join(tmp_dir, "full.pdf")
+        doc.ExportAsFixedFormat(OutputFileName=target, ExportFormat=17,
+                                OpenAfterExport=False, OptimizeFor=0, Range=0,
+                                IncludeDocProps=True, CreateBookmarks=0,
+                                DocStructureTags=True)
+        if keep_pages is not None:
+            reader = PdfReader(target)
             writer = PdfWriter()
-            for page in reader.pages:
-                writer.add_page(page)
-            writer.encrypt(password)
-            with open(out_path, "wb") as f_out:
-                writer.write(f_out)
-            print(f"  {fname}")
-            success.append(os.path.basename(out_path))
-        except Exception as e:
-            errors.append((fname, str(e)))
+            for i in keep_pages:
+                writer.add_page(reader.pages[i])
+            write_pdf(writer, out_path)
+    finally:
+        doc.Close(SaveChanges=False)
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    if success:
-        print(f"\nOutput: Protected\\")
-        for n in success:
-            print(n)
 
-    if errors:
-        print(f"\nFailed:")
-        for fname, err in errors:
-            print(f'  "{fname}"')
-        choice = input("\nPress 1 to save error log, or Enter to continue: ").strip()
-        if choice == "1":
-            log_path = os.path.join(script_dir, "protect_pdf_errors.txt")
-            with open(log_path, "w") as log:
-                log.write("Protect PDF — Error Log\n" + "=" * 40 + "\n\n")
-                for fname, err in errors:
-                    log.write(f"{fname}\n  {err}\n\n")
-            print(f"Log saved: protect_pdf_errors.txt")
-
-    print("\nDone.")
-
-# ══════════════════════════════════════════════════════════
-#  TOOL 5 — Unprotect PDF
-# ══════════════════════════════════════════════════════════
-def tool_unprotect_pdf(script_dir):
-    from pypdf import PdfReader, PdfWriter
-
-    out_folder = os.path.join(script_dir, "Unprotected")
-    os.makedirs(out_folder, exist_ok=True)
-
-    pdf_files = get_pdf_files(script_dir)
-    if not pdf_files:
-        print("No PDF files found.")
-        return
-
-    print(f"Found {len(pdf_files)} PDF file(s):\n")
-    for f in pdf_files:
-        print(f"  {f}")
-
-    print()
-    password = input("Enter password to unlock: ")
-    if not password:
-        print("No password entered. Aborted.")
-        return
-
-    print()
-    errors      = []
-    success     = []
-    already_ok  = []
-    no_password = []
-
-    for fname in pdf_files:
-        fpath = os.path.join(script_dir, fname)
-        stem  = os.path.splitext(fname)[0]
-
-        if stem.endswith("_unprotected"):
-            already_ok.append(fname)
-            continue
-
-        try:
-            reader = PdfReader(fpath)
-
-            if not reader.is_encrypted:
-                no_password.append(fname)
+def scan_office_index(script_dir: str, with_units: bool) -> Index:
+    """with_units=False: names only (Convert). True: opens each file for sheet / page counts (Precise)."""
+    gen = prefix_generator() if with_units else number_generator()
+    entries, unreadable = [], []
+    apps = OfficeApps()
+    try:
+        for name in list_files(script_dir, EXCEL_EXTS | WORD_EXTS):
+            path = os.path.join(script_dir, name)
+            kind = "excel" if os.path.splitext(name)[1].lower() in EXCEL_EXTS else "word"
+            if not with_units:
+                entries.append(Entry(next(gen), path, name, kind))
                 continue
-
-            result = reader.decrypt(password)
-            if result == 0:
-                raise ValueError("Wrong password — could not decrypt.")
-
-            writer = PdfWriter()
-            for page in reader.pages:
-                writer.add_page(page)
-
-            out_name = f"{stem}_unprotected.pdf"
-            out_path = get_unique_path(out_folder, out_name)
-            with open(out_path, "wb") as f_out:
-                writer.write(f_out)
-            print(f"  {fname}")
-            success.append(os.path.basename(out_path))
-
-        except ValueError as e:
-            errors.append((fname, str(e)))
-        except Exception as e:
-            errors.append((fname, str(e)))
-
-    if already_ok:
-        print(f"\nSkipped (already unprotected):")
-        for f in already_ok:
-            print(f'  "{f}"')
-
-    if no_password:
-        print(f"\nSkipped (no password):")
-        for f in no_password:
-            print(f'  "{f}"')
-
-    if success:
-        print(f"\nOutput: Unprotected\\")
-        for n in success:
-            print(n)
-
-    if errors:
-        print(f"\nFailed:")
-        for fname, err in errors:
-            print(f'  "{fname}"')
-        choice = input("\nPress 1 to save error log, or Enter to continue: ").strip()
-        if choice == "1":
-            log_path = os.path.join(script_dir, "unprotect_pdf_errors.txt")
-            with open(log_path, "w") as log:
-                log.write("Unprotect PDF — Error Log\n" + "=" * 40 + "\n\n")
-                for fname, err in errors:
-                    log.write(f"{fname}\n  {err}\n\n")
-            print(f"Log saved: unprotect_pdf_errors.txt")
-
-    print("\nDone.")
-
-# ══════════════════════════════════════════════════════════
-#  TOOL 6 — Convert to PDF_Precise
-# ══════════════════════════════════════════════════════════
-def tool_convert_to_pdf_precise(script_dir):
-    import win32com.client
-
-    out_folder = os.path.join(script_dir, "To PDF")
-    os.makedirs(out_folder, exist_ok=True)
-
-    def parse_selection(raw, max_index):
-        raw = raw.strip()
-        if not raw:
-            return None
-        selected = []
-        for token in raw.replace(",", " ").split():
-            if "-" in token:
-                parts = token.split("-")
-                try:
-                    start, end = int(parts[0]), int(parts[1])
-                    for n in range(start, end + 1):
-                        if 1 <= n <= max_index:
-                            selected.append(n - 1)
-                except ValueError:
-                    pass
-            else:
-                try:
-                    n = int(token)
-                    if 1 <= n <= max_index:
-                        selected.append(n - 1)
-                except ValueError:
-                    pass
-        seen, result = set(), []
-        for i in selected:
-            if i not in seen:
-                seen.add(i)
-                result.append(i)
-        return result if result else None
-
-    excel_exts = {".xls", ".xlsx", ".xlsm", ".xlsb"}
-    word_exts  = {".doc", ".docx"}
-    excel_files, word_files = [], []
-
-    for fname in sorted(os.listdir(script_dir)):
-        fpath = os.path.join(script_dir, fname)
-        if not os.path.isfile(fpath):
-            continue
-        ext = os.path.splitext(fname)[1].lower()
-        if ext in excel_exts:
-            excel_files.append(fpath)
-        elif ext in word_exts:
-            word_files.append(fpath)
-
-    if not excel_files and not word_files:
-        print("No Excel or Word files found.")
-        return
-
-    errors = []
-
-    if excel_files:
-        print("Starting Excel...\n")
-        xl_app = win32com.client.Dispatch("Excel.Application")
-        xl_app.Visible = False
-        xl_app.DisplayAlerts = False
-        try:
-            for fpath in excel_files:
-                fname     = os.path.basename(fpath)
-                base_name = os.path.splitext(fname)[0]
-                out_path  = get_unique_path(out_folder, base_name + ".pdf")
-                print(f"  {fname}  ->  {os.path.basename(out_path)}")
-                try:
-                    wb = xl_app.Workbooks.Open(fpath, ReadOnly=True, UpdateLinks=False)
-                    visible = [s.Name for s in wb.Sheets if s.Visible == -1]
-                    if not visible:
-                        print(f"ERROR: No visible sheets found. ({fname})")
-                        wb.Close(SaveChanges=False)
-                        continue
-                    print(f"  Sheets:")
-                    for i, name in enumerate(visible, start=1):
-                        print(f"    {i} - {name}")
-                    print("  [Selections] - e.g. 1, 2, 4-6")
-                    print("  [Enter] - Select all")
-                    print("  [0] - Cancel & Return to Menu")
-                    raw = input("  ")
-                    if raw.strip() == "0":
-                        wb.Close(SaveChanges=False)
-                        return "CANCELLED"
-                    indices = parse_selection(raw, len(visible))
-                    selected_names = visible if indices is None else [visible[i] for i in indices]
-                    if not selected_names:
-                        print(f"Invalid Input: \"{raw}\"")
-                        wb.Close(SaveChanges=False)
-                        continue
-                    hidden = []
-                    for sheet in wb.Sheets:
-                        if sheet.Visible == -1 and sheet.Name not in selected_names:
-                            sheet.Visible = False
-                            hidden.append(sheet.Name)
+            try:
+                if kind == "excel":
+                    wb = apps.get("excel").Workbooks.Open(path, ReadOnly=True, UpdateLinks=False)
                     try:
-                        wb.ExportAsFixedFormat(Type=0, Filename=out_path, Quality=0,
-                                               IncludeDocProperties=True,
-                                               IgnorePrintAreas=False, OpenAfterPublish=False)
+                        visible = [s.Name for s in wb.Sheets if s.Visible == -1]
                     finally:
-                        for sheet in wb.Sheets:
-                            if sheet.Name in hidden:
-                                sheet.Visible = -1
-                    wb.Close(SaveChanges=False)
-                    print()
-                except Exception as e:
-                    print(f"ERROR: pywintypes.com_error - Could be: file is open in another program / corrupted / Excel frozen. ({fname})")
-                    print(f"Error Details: {e}\n")
-                    errors.append(fname)
-        finally:
-            xl_app.Quit()
+                        wb.Close(SaveChanges=False)
+                    if not visible:
+                        raise ValueError("no visible sheets")
+                    entries.append(Entry(next(gen), path, name, kind, len(visible),
+                                         "Sheets", "sheet", visible))
+                else:
+                    doc = apps.get("word").Documents.Open(path, ReadOnly=True, AddToRecentFiles=False)
+                    try:
+                        pages = int(doc.ComputeStatistics(2))          # wdStatisticPages
+                    finally:
+                        doc.Close(SaveChanges=False)
+                    entries.append(Entry(next(gen), path, name, kind, pages, "Pages", "page"))
+            except Exception as e:
+                unreadable.append((name, f"{type(e).__name__} - {e}"))
+    finally:
+        apps.close()
+    return finalize_index(entries, unreadable, "Excel or Word")
 
-    if word_files:
-        print("\nStarting Word...\n")
-        wd_app = win32com.client.Dispatch("Word.Application")
-        wd_app.Visible = False
-        wd_app.DisplayAlerts = False
-        try:
-            for fpath in word_files:
-                fname     = os.path.basename(fpath)
-                base_name = os.path.splitext(fname)[0]
-                out_path  = get_unique_path(out_folder, base_name + ".pdf")
-                print(f"  {fname}  ->  {os.path.basename(out_path)}")
-                try:
-                    doc = wd_app.Documents.Open(fpath, ReadOnly=True, AddToRecentFiles=False)
-                    doc.ExportAsFixedFormat(OutputFileName=out_path, ExportFormat=17,
-                                            OpenAfterExport=False, OptimizeFor=0, Range=0,
-                                            IncludeDocProps=True, CreateBookmarks=0,
-                                            DocStructureTags=True)
-                    doc.Close(SaveChanges=False)
-                except Exception as e:
-                    print(f"ERROR: pywintypes.com_error - Could be: file is open in another program / corrupted / Word frozen. ({fname})")
-                    print(f"Error Details: {e}")
-                    errors.append(fname)
-        finally:
-            wd_app.Quit()
-
-    if errors:
-        print(f"Failed:")
-        for f in errors:
-            print(f'  "{f}"')
-
-    print(f"\nOutput: To PDF\\")
-    print("\nDone.")
 
 # ══════════════════════════════════════════════════════════
-#  TOOL 7 — Combine PDF Pages
+#  TOOL 1 - Convert to PDF   (file-level)
 # ══════════════════════════════════════════════════════════
-def tool_combine_pdf_pages(script_dir):
-    from pypdf import PdfReader, PdfWriter
-
-    out_folder = os.path.join(script_dir, "Combined")
-    os.makedirs(out_folder, exist_ok=True)
-
-    def parse_selection(raw, code_map, prefix_page_map):
-        tokens = re.split(r'[\s,]+', raw.strip().lower())
-        selected = []
-        invalid  = []
-        for token in tokens:
-            if not token:
-                continue
-            if re.match(r'^[a-z]+$', token):
-                if token in prefix_page_map:
-                    for code in prefix_page_map[token]:
-                        selected.append(code)
-                else:
-                    invalid.append(token)
-                continue
-            range_match = re.match(r'^([a-z]+)(\d+)-([a-z]+)?(\d+)$', token)
-            if range_match:
-                p1 = range_match.group(1)
-                n1 = int(range_match.group(2))
-                p2 = range_match.group(3) or p1
-                n2 = int(range_match.group(4))
-                if p1 == p2:
-                    range_valid = True
-                    for n in range(n1, n2 + 1):
-                        code = f"{p1}{n}"
-                        if code in code_map:
-                            selected.append(code)
-                        else:
-                            range_valid = False
-                    if not range_valid:
-                        invalid.append(token)
-                else:
-                    invalid.append(token)
-                continue
-            if token in code_map:
-                selected.append(token)
-            else:
-                invalid.append(token)
-        return selected, invalid
-
-    # ── Scan files ONCE before entering the selection loop ──
-    pdf_files = get_pdf_files(script_dir)
-    if not pdf_files:
-        print("No PDF files found.")
-        return
-
-    code_map, prefix_page_map, display_lines = {}, {}, []
-    unreadable = []
-    gen = prefix_generator()
-
-    for fpath_name in pdf_files:
-        fpath  = os.path.join(script_dir, fpath_name)
-        prefix = next(gen)
-        try:
-            reader    = PdfReader(fpath)
-            num_pages = len(reader.pages)
-        except Exception as e:
-            unreadable.append(fpath_name)
-            continue
-        page_codes = []
-        for i in range(num_pages):
-            code = f"{prefix}{i+1}"
-            code_map[code] = (fpath, i)
-            page_codes.append(code)
-        prefix_page_map[prefix] = page_codes
-        display_lines.append(f"  {prefix} (Pages: {prefix}1-{prefix}{num_pages}) - {fpath_name}")
-
-    if unreadable:
-        quoted = "\n".join(f'"{f}"' for f in unreadable)
-        print(f"Unreadable PDF:\n{quoted}\n")
-        print("[Enter] - Skip & Continue")
-        print("[0] - Cancel & Return to Menu")
-        choice = input().strip()
-        if choice == "0":
-            return "CANCELLED"
-        print()
-
-    if not code_map:
-        print("No readable PDF files found.")
-        return
-
+def tool_convert_to_pdf(script_dir: str) -> None:
+    index = scan_office_index(script_dir, with_units=False)
     while True:
-        print("\n" + "\n".join(display_lines) + "\n")
-        print("[Selections] - e.g. a1, b, c4-6")
-        print("[Enter] - Select all")
-        print("[0] - Cancel & Return to Menu")
-        raw = input().strip().lower()
+        tokens = prompt_selection(index, "file", "1, 3, 4-6")
+        entries = files_of(tokens, index)
+        if confirm(f"Convert summary (Files: {len(entries)})",
+                   numbered([f'"{e.name}"' for e in entries])):
+            break
 
-        if raw == "0":
-            return "CANCELLED"
+    out_folder = os.path.join(script_dir, OUT_FOLDERS["convert"])
+    announce(script_dir, out_folder)
+    apps = OfficeApps()
 
-        if not raw:
-            all_prefixes = list(prefix_page_map.keys())
-            raw = " ".join(all_prefixes)
-
-        selected_codes, invalid_tokens = parse_selection(raw, code_map, prefix_page_map)
-
-        if invalid_tokens:
-            quoted = ", ".join(f'"{t}"' for t in invalid_tokens)
-            print(f"\nInvalid Input: {quoted}")
-            print("[Enter] - Skip Invalid Input & Continue")
-            print("[N] - Re-enter")
-            print("[0] - Cancel & Return to Menu")
-            choice = input().strip().lower()
-            if choice == "0":
-                return "CANCELLED"
-            if choice == "n":
-                print()
-                continue
-
-        if not selected_codes:
-            print("No valid pages selected. Aborted.")
-            return
-
-        print(f"\nSelection summary (Pages: {len(selected_codes)}):")
-        prev_prefix = None
-        for code in selected_codes:
-            fpath, page_idx = code_map[code]
-            prefix = re.match(r'^([a-z]+)', code).group(1)
-            if prefix != prev_prefix:
-                print(f"  {os.path.basename(fpath)}")
-                prev_prefix = prefix
-            print(f"    {code} - page {page_idx + 1}")
-
-        print()
-        print("[Enter] - Proceed")
-        print("[N] - Re-enter")
-        print("[0] - Cancel & Return to Menu")
-        proceed = input().strip().lower()
-        if proceed == "0":
-            return "CANCELLED"
-        if proceed == "n":
-            print()
-            continue
-
-        readers, writer, errors = {}, PdfWriter(), []
-        for code in selected_codes:
-            fpath, page_idx = code_map[code]
-            try:
-                if fpath not in readers:
-                    readers[fpath] = PdfReader(fpath)
-                writer.add_page(readers[fpath].pages[page_idx])
-            except Exception as e:
-                errors.append(code)
-
-        total_pages = len(selected_codes) - len(errors)
-        date_str    = datetime.datetime.now().strftime("%Y%m%d")
-        out_name    = f"{date_str} Combined_{total_pages} pages.pdf"
-        out_path    = get_unique_path(out_folder, out_name)
-
-        with open(out_path, "wb") as f:
-            writer.write(f)
-
-        print(f"\nOutput: Combined\\")
-        print(f"{os.path.basename(out_path)}")
-        if errors:
-            print(f"\nFailed pages: {', '.join(errors)}")
-
-        print("\nDone.")
-        return
-
-
-def tool_extract_pdf_pages(script_dir):
-    from pypdf import PdfReader, PdfWriter
-
-    out_folder = os.path.join(script_dir, "Extract")
-    os.makedirs(out_folder, exist_ok=True)
-
-    def parse_tokens(raw, code_map, prefix_page_map):
-        tokens = re.split(r',', raw.strip().lower())
-        result  = []
-        invalid = []
-        for token in tokens:
-            token = token.strip()
-            if not token:
-                continue
-            if re.match(r'^[a-z]+$', token):
-                if token in prefix_page_map:
-                    for code in prefix_page_map[token]:
-                        n = int(re.search(r'\d+', code).group())
-                        result.append((f"p{n}", [code]))
-                else:
-                    invalid.append(token)
-                continue
-            range_match = re.match(r'^([a-z]+)(\d+)-([a-z]+)?(\d+)$', token)
-            if range_match:
-                p1 = range_match.group(1)
-                n1 = int(range_match.group(2))
-                p2 = range_match.group(3) or p1
-                n2 = int(range_match.group(4))
-                if p1 == p2:
-                    codes = []
-                    range_valid = True
-                    for n in range(n1, n2 + 1):
-                        code = f"{p1}{n}"
-                        if code in code_map:
-                            codes.append(code)
-                        else:
-                            range_valid = False
-                    if range_valid and codes:
-                        result.append((f"p{n1}-{n2}", codes))
-                    else:
-                        invalid.append(token)
-                else:
-                    invalid.append(token)
-                continue
-            if token in code_map:
-                n = int(re.search(r'\d+', token).group())
-                result.append((f"p{n}", [token]))
-            else:
-                invalid.append(token)
-        return result, invalid
-
-    def write_pdf(pages_data, out_path):
-        writer = PdfWriter()
-        for reader, idx in pages_data:
-            writer.add_page(reader.pages[idx])
-        with open(out_path, "wb") as f:
-            writer.write(f)
-
-    # ── Scan files ONCE before entering the selection loop ──
-    pdf_files = get_pdf_files(script_dir)
-    if not pdf_files:
-        print("No PDF files found.")
-        return
-
-    code_map        = {}
-    prefix_page_map = {}
-    prefix_file_map = {}
-    display_lines   = []
-    unreadable      = []
-    gen             = prefix_generator()
-
-    for fpath_name in pdf_files:
-        fpath  = os.path.join(script_dir, fpath_name)
-        prefix = next(gen)
-        try:
-            reader    = PdfReader(fpath)
-            num_pages = len(reader.pages)
-        except Exception as e:
-            unreadable.append(fpath_name)
-            continue
-        page_codes = []
-        for i in range(num_pages):
-            code = f"{prefix}{i+1}"
-            code_map[code] = (fpath, i)
-            page_codes.append(code)
-        prefix_page_map[prefix] = page_codes
-        prefix_file_map[prefix] = fpath
-        display_lines.append(f"  {prefix} (Pages: {prefix}1-{prefix}{num_pages}) - {fpath_name}")
-
-    if unreadable:
-        quoted = "\n".join(f'"{f}"' for f in unreadable)
-        print(f"Unreadable PDF:\n{quoted}\n")
-        print("[Enter] - Skip & Continue")
-        print("[0] - Cancel & Return to Menu")
-        choice = input().strip()
-        if choice == "0":
-            return "CANCELLED"
-        print()
-
-    if not code_map:
-        print("No readable PDF files found.")
-        return
-
-    while True:
-        print("\n" + "\n".join(display_lines) + "\n")
-        print("[Selections] - e.g. a1, b2, c4-6")
-        print("[Enter] - Split all")
-        print("[0] - Cancel & Return to Menu")
-        raw = input().strip().lower()
-
-        if raw == "0":
-            return "CANCELLED"
-
-        if not raw:
-            total = sum(len(v) for v in prefix_page_map.values())
-            print(f"\nSplit all: Output files: {total}")
-            print("[Enter] - Proceed")
-            print("[N] - Re-enter")
-            print("[0] - Cancel & Return to Menu")
-            proceed = input().strip().lower()
-            if proceed == "0":
-                return "CANCELLED"
-            if proceed == "n":
-                print()
-                continue
-
-            print("\nSplitting...")
-            readers, errors = {}, []
-            for prefix, codes in prefix_page_map.items():
-                fpath = prefix_file_map[prefix]
-                stem  = os.path.splitext(os.path.basename(fpath))[0]
-                if fpath not in readers:
-                    try:
-                        readers[fpath] = PdfReader(fpath)
-                    except Exception as e:
-                        errors.append(os.path.basename(fpath))
-                        continue
-                reader = readers[fpath]
-                for code in codes:
-                    _, page_idx = code_map[code]
-                    out_name = f"{stem}_p{page_idx+1}.pdf"
-                    out_path = get_unique_path(out_folder, out_name)
-                    try:
-                        write_pdf([(reader, page_idx)], out_path)
-                    except Exception as e:
-                        errors.append(out_name)
-            if errors:
-                print(f"\nFailed:")
-                for f in errors:
-                    print(f'  "{f}"')
-            print(f"\nOutput: Extract\\")
-            print("\nDone.")
-            return
-
-        token_list, invalid_tokens = parse_tokens(raw, code_map, prefix_page_map)
-
-        if invalid_tokens:
-            quoted = ", ".join(f'"{t}"' for t in invalid_tokens)
-            print(f"\nInvalid Input: {quoted}")
-            print("[Enter] - Skip Invalid Input & Continue")
-            print("[N] - Re-enter")
-            print("[0] - Cancel & Return to Menu")
-            choice = input().strip().lower()
-            if choice == "0":
-                return "CANCELLED"
-            if choice == "n":
-                print()
-                continue
-
-        if not token_list:
-            print("No valid selection. Aborted.")
-            return
-
-        print(f"\nExtract summary (Output files: {len(token_list)}):")
-        for label, codes in token_list:
-            fpath, _ = code_map[codes[0]]
-            stem     = os.path.splitext(os.path.basename(fpath))[0]
-            pages    = [code_map[c][1] + 1 for c in codes]
-            print(f"  {stem}_{label}.pdf  (Pages: {', '.join(str(p) for p in pages)})")
-
-        print()
-        print("[Enter] - Proceed")
-        print("[N] - Re-enter")
-        print("[0] - Cancel & Return to Menu")
-        proceed = input().strip().lower()
-        if proceed == "0":
-            return "CANCELLED"
-        if proceed == "n":
-            print()
-            continue
-
-        print("\nExtracting...")
-        readers, errors = {}, []
-        for label, codes in token_list:
-            fpath, _ = code_map[codes[0]]
-            stem     = os.path.splitext(os.path.basename(fpath))[0]
-            out_name = f"{stem}_{label}.pdf"
-            out_path = get_unique_path(out_folder, out_name)
-            try:
-                if fpath not in readers:
-                    readers[fpath] = PdfReader(fpath)
-                pages_data = [(readers[fpath], code_map[c][1]) for c in codes]
-                write_pdf(pages_data, out_path)
-            except Exception as e:
-                errors.append(out_name)
-
-        if errors:
-            print(f"\nFailed:")
-            for f in errors:
-                print(f'  "{f}"')
-
-        print(f"\nOutput: Extract\\")
-        print("\nDone.")
-        return
-
-
-def tool_rotate_pdf(script_dir):
-    from pypdf import PdfReader, PdfWriter
-
-    out_folder = os.path.join(script_dir, "Rotated")
-    os.makedirs(out_folder, exist_ok=True)
-
-    def parse_selection_rotate(raw, code_map, prefix_page_map):
-        tokens = re.split(r'[\s,]+', raw.strip().lower())
-        selected = []
-        invalid  = []
-        for token in tokens:
-            if not token:
-                continue
-            if re.match(r'^[a-z]+$', token):
-                if token in prefix_page_map:
-                    for code in prefix_page_map[token]:
-                        selected.append(code)
-                else:
-                    invalid.append(token)
-                continue
-            range_match = re.match(r'^([a-z]+)(\d+)-([a-z]+)?(\d+)$', token)
-            if range_match:
-                p1 = range_match.group(1)
-                n1 = int(range_match.group(2))
-                p2 = range_match.group(3) or p1
-                n2 = int(range_match.group(4))
-                if p1 == p2:
-                    range_valid = True
-                    for n in range(n1, n2 + 1):
-                        code = f"{p1}{n}"
-                        if code in code_map:
-                            selected.append(code)
-                        else:
-                            range_valid = False
-                    if not range_valid:
-                        invalid.append(token)
-                else:
-                    invalid.append(token)
-                continue
-            if token in code_map:
-                selected.append(token)
-            else:
-                invalid.append(token)
-        return selected, invalid
-
-    # ── Scan files ONCE before entering the selection loop ──
-    pdf_files = get_pdf_files(script_dir)
-    if not pdf_files:
-        print("No PDF files found.")
-        return
-
-    code_map        = {}
-    prefix_page_map = {}
-    prefix_file_map = {}
-    display_lines   = []
-    unreadable      = []
-    gen             = prefix_generator()
-
-    for fname in pdf_files:
-        fpath  = os.path.join(script_dir, fname)
-        prefix = next(gen)
-        try:
-            reader    = PdfReader(fpath)
-            num_pages = len(reader.pages)
-        except Exception as e:
-            unreadable.append(fname)
-            continue
-        page_codes = []
-        for i in range(num_pages):
-            code = f"{prefix}{i+1}"
-            code_map[code] = (fpath, i)
-            page_codes.append(code)
-        prefix_page_map[prefix] = page_codes
-        prefix_file_map[prefix] = fpath
-        display_lines.append(f"  {prefix} (Pages: {prefix}1-{prefix}{num_pages}) - {fname}")
-
-    if unreadable:
-        quoted = "\n".join(f'"{f}"' for f in unreadable)
-        print(f"Unreadable PDF:\n{quoted}\n")
-        print("[Enter] - Skip & Continue")
-        print("[0] - Cancel & Return to Menu")
-        choice = input().strip()
-        if choice == "0":
-            return "CANCELLED"
-        print()
-
-    if not code_map:
-        print("No readable PDF files found.")
-        return
-
-    while True:
-        print("\n" + "\n".join(display_lines) + "\n")
-
-        print("[Selections] - e.g. a1, b2, c4-6")
-        print("[Enter] - Select all")
-        print("[0] - Cancel & Return to Menu")
-        raw = input().strip().lower()
-
-        if raw == "0":
-            return "CANCELLED"
-
-        if not raw:
-            selected_codes = []
-            for prefix in prefix_page_map:
-                selected_codes.extend(prefix_page_map[prefix])
-            invalid_tokens = []
+    def worker(entry: Entry) -> list:
+        out_path = get_unique_path(out_folder, stem_of(entry.name) + ".pdf")
+        if entry.kind == "excel":
+            excel_export(apps.get("excel"), entry.path, out_path, None)
         else:
-            selected_codes, invalid_tokens = parse_selection_rotate(raw, code_map, prefix_page_map)
+            word_export(apps.get("word"), entry.path, out_path, None)
+        return [os.path.basename(out_path)]
 
-        if invalid_tokens:
-            quoted = ", ".join(f'"{t}"' for t in invalid_tokens)
-            print(f"\nInvalid Input: {quoted}")
-            print("[Enter] - Skip Invalid Input & Continue")
-            print("[N] - Re-enter")
-            print("[0] - Cancel & Return to Menu")
-            choice = input().strip().lower()
-            if choice == "0":
-                return "CANCELLED"
-            if choice == "n":
-                print()
-                continue
+    try:
+        t0 = begin("Converting")
+        outputs, skipped, failures = run_items(entries, "converting to PDF", worker, lambda e: e.name)
+    finally:
+        apps.close()
+    finish("Convert to PDF", script_dir, t0, outputs, skipped, failures)
 
-        if not selected_codes:
-            print("No valid pages selected. Aborted.")
-            return
 
-        print("Rotation? 90 / 180 / 270: ", end="")
-        angle_raw = input().strip()
-        if angle_raw not in ("90", "180", "270"):
-            print(f"Invalid Input: \"{angle_raw}\"")
-            return
-        angle = int(angle_raw)
+# ══════════════════════════════════════════════════════════
+#  TOOL 2 - Merge PDF   (file-level; merge order = order selected)
+# ══════════════════════════════════════════════════════════
+def tool_merge_pdf(script_dir: str) -> None:
+    from pypdf import PdfReader, PdfWriter
+    index = scan_pdf_index(script_dir, count_pages=False)
+    while True:
+        tokens = prompt_selection(index, "file", "3, 1, 4-6", "Select all, merged in list order")
+        entries = files_of(tokens, index)
+        if confirm(f"Merge summary (Files: {len(entries)})",
+                   numbered([f'"{e.name}"' for e in entries])):
+            break
 
-        print(f"\nRotate summary (Pages: {len(selected_codes)}; Rotation: {angle}):")
-        prev_prefix = None
-        for code in selected_codes:
-            fpath, page_idx = code_map[code]
-            prefix = re.match(r'^([a-z]+)', code).group(1)
-            if prefix != prev_prefix:
-                print(f"  {os.path.basename(fpath)}")
-                prev_prefix = prefix
-            print(f"    {code} - page {page_idx + 1}")
+    out_folder = os.path.join(script_dir, OUT_FOLDERS["merge"])
+    announce(script_dir, out_folder)
+    writer = PdfWriter()
+    merged = []
 
-        print()
-        print("[Enter] - Proceed")
-        print("[N] - Re-enter")
-        print("[0] - Cancel & Return to Menu")
-        proceed = input().strip().lower()
-        if proceed == "0":
-            return "CANCELLED"
-        if proceed == "n":
-            print()
-            continue
+    def worker(entry: Entry) -> list:
+        reader = PdfReader(entry.path)
+        if reader.is_encrypted:
+            raise ValueError("file is password-protected")
+        pages = list(reader.pages)                  # parse everything before touching the writer
+        for p in pages:
+            writer.add_page(p)
+        merged.append(entry)
+        return []
 
-        pages_to_rotate_by_file = {}
-        for code in selected_codes:
-            fpath, page_idx = code_map[code]
-            pages_to_rotate_by_file.setdefault(fpath, set()).add(page_idx)
+    t0 = begin("Merging")
+    _, skipped, failures = run_items(entries, "reading pages", worker, lambda e: e.name)
+    outputs = []
+    if merged:
+        out_name = f"{stem_of(merged[0].name)} Merged.pdf"
+        try:
+            out_path = get_unique_path(out_folder, out_name)
+            write_pdf(writer, out_path)
+            outputs.append(os.path.basename(out_path))
+        except Exception as e:
+            failures.append(make_failure(out_name, "writing merged file", f"files merged = {len(merged)}", e))
+    finish("Merge PDF", script_dir, t0, outputs, skipped, failures)
 
-        print("\nRotating...")
-        errors = []
-        rotated_names = []
-        for fpath, rotate_indices in pages_to_rotate_by_file.items():
-            fname = os.path.basename(fpath)
-            stem  = os.path.splitext(fname)[0]
-            try:
-                reader = PdfReader(fpath)
-                writer = PdfWriter()
-                for i, page in enumerate(reader.pages):
-                    if i in rotate_indices:
-                        page.rotate(angle)
-                    writer.add_page(page)
-                out_name = f"{stem}_rotated.pdf"
-                out_path = get_unique_path(out_folder, out_name)
-                with open(out_path, "wb") as f:
-                    writer.write(f)
-                rotated_names.append(os.path.basename(out_path))
-            except Exception as e:
-                errors.append(fname)
 
-        if rotated_names:
-            print(f"\nOutput: Rotated\\")
-            for n in rotated_names:
-                print(n)
-        if errors:
-            print(f"\nFailed:")
-            for f in errors:
-                print(f'  "{f}"')
+# ══════════════════════════════════════════════════════════
+#  TOOL 3 - Split PDF   (file-level; one file per page)
+# ══════════════════════════════════════════════════════════
+def tool_split_pdf(script_dir: str) -> None:
+    from pypdf import PdfReader, PdfWriter
+    index = scan_pdf_index(script_dir, count_pages=False)
+    while True:
+        tokens = prompt_selection(index, "file", "1, 3, 4-6")
+        entries = files_of(tokens, index)
+        if confirm(f"Split summary (Files: {len(entries)})",
+                   numbered([f'"{e.name}"' for e in entries])):
+            break
 
-        print("\nDone.")
-        return
+    out_folder = os.path.join(script_dir, OUT_FOLDERS["split"])
+    announce(script_dir, out_folder)
+
+    def worker(entry: Entry) -> list:
+        reader = PdfReader(entry.path)
+        if reader.is_encrypted:
+            raise ValueError("file is password-protected")
+        names = []
+        for i, page in enumerate(reader.pages, start=1):
+            w = PdfWriter()
+            w.add_page(page)
+            out_path = get_unique_path(out_folder, f"{stem_of(entry.name)} p{i}.pdf")
+            write_pdf(w, out_path)
+            names.append(os.path.basename(out_path))
+        return names
+
+    t0 = begin("Splitting")
+    outputs, skipped, failures = run_items(entries, "reading and splitting pages", worker, lambda e: e.name)
+    finish("Split PDF", script_dir, t0, outputs, skipped, failures)
+
+
+# ══════════════════════════════════════════════════════════
+#  TOOL 4 - Rotate PDF   (page-level)
+# ══════════════════════════════════════════════════════════
+def prompt_rotation() -> tuple:
+    """-> (clockwise degrees for pypdf, label such as 'R90'). Left N == right (360 - N)."""
+    print("\nRotation by: [L / R] [90 / 180]:")
+    print("eg. R90")
+    print("[0] - Cancel & Return to Menu")
+    while True:
+        raw = input().strip()
+        if raw == "0":
+            raise UserCancelled()
+        m = re.fullmatch(r"([LR])\s*(90|180)", raw.upper())
+        if m:
+            direction, degrees = m.group(1), int(m.group(2))
+            return (degrees if direction == "R" else 360 - degrees), f"{direction}{degrees}"
+        print(f'\nInvalid Input: "{raw}"')
+        print("Rotation by: [L / R] [90 / 180]:")
+
+
+def tool_rotate_pdf(script_dir: str) -> None:
+    from pypdf import PdfReader, PdfWriter
+    index = scan_pdf_index(script_dir, count_pages=True)
+    while True:
+        tokens = prompt_selection(index, "unit", "a1, b2, c4-6")
+        codes = dedupe(flatten_codes(tokens))
+        angle, label = prompt_rotation()
+        if confirm(f"Rotate summary (Pages: {len(codes)}; Rotation: {label})",
+                   unit_summary_lines(codes, index)):
+            break
+
+    out_folder = os.path.join(script_dir, OUT_FOLDERS["rotate"])
+    announce(script_dir, out_folder)
+    groups = group_by_entry(codes, index)
+
+    def worker(item: tuple) -> list:
+        entry, idxs = item
+        reader = PdfReader(entry.path)
+        writer = PdfWriter()
+        for i, page in enumerate(reader.pages):
+            if i in idxs:
+                page.rotate(angle)
+            writer.add_page(page)
+        out_path = get_unique_path(out_folder, f"{stem_of(entry.name)} Rotated.pdf")
+        write_pdf(writer, out_path)
+        return [os.path.basename(out_path)]
+
+    t0 = begin("Rotating")
+    outputs, skipped, failures = run_items(
+        groups, "rotating pages", worker, lambda it: it[0].name,
+        lambda it: f"pages selected = {[i + 1 for i in it[1]]}; rotation = {label}")
+    finish("Rotate PDF", script_dir, t0, outputs, skipped, failures)
+
+
+# ══════════════════════════════════════════════════════════
+#  TOOL 5 - Protect PDF   (file-level)
+# ══════════════════════════════════════════════════════════
+def tool_protect_pdf(script_dir: str) -> None:
+    from pypdf import PdfReader, PdfWriter
+    index = scan_pdf_index(script_dir, count_pages=False)
+    while True:
+        tokens = prompt_selection(index, "file", "1, 3, 4-6")
+        entries = files_of(tokens, index)
+        password = prompt_password("Password to apply", forbid_name_chars=True)
+        if confirm(f"Protect summary (Files: {len(entries)}; Password: {password})",
+                   numbered([f'"{e.name}"' for e in entries])):
+            break
+
+    out_folder = os.path.join(script_dir, OUT_FOLDERS["protect"])
+    announce(script_dir, out_folder)
+
+    def worker(entry: Entry) -> list:
+        stem = stem_of(entry.name)
+        if PW_MARK in stem:
+            raise SkipItem(f"already protected (filename has {PW_MARK})")
+        reader = PdfReader(entry.path)
+        if reader.is_encrypted:
+            raise SkipItem("already protected (file is encrypted)")
+        writer = PdfWriter()
+        for page in reader.pages:
+            writer.add_page(page)
+        writer.encrypt(password)
+        # Password in the filename is a deliberate choice (ADR), despite the underscore rule.
+        out_path = get_unique_path(out_folder, f"{stem}{PW_MARK}{password}.pdf")
+        write_pdf(writer, out_path)
+        return [os.path.basename(out_path)]
+
+    t0 = begin("Protecting")
+    outputs, skipped, failures = run_items(entries, "reading and encrypting", worker, lambda e: e.name)
+    finish("Protect PDF", script_dir, t0, outputs, skipped, failures)
+
+
+# ══════════════════════════════════════════════════════════
+#  TOOL 6 - Unprotect PDF   (file-level)
+# ══════════════════════════════════════════════════════════
+def tool_unprotect_pdf(script_dir: str) -> None:
+    from pypdf import PdfReader, PdfWriter
+    index = scan_pdf_index(script_dir, count_pages=False)
+    while True:
+        tokens = prompt_selection(index, "file", "1, 3, 4-6")
+        entries = files_of(tokens, index)
+        password = prompt_password("Password to unlock", forbid_name_chars=False)
+        if confirm(f"Unprotect summary (Files: {len(entries)}; Password: {password})",
+                   numbered([f'"{e.name}"' for e in entries])):
+            break
+
+    out_folder = os.path.join(script_dir, OUT_FOLDERS["unprotect"])
+    announce(script_dir, out_folder)
+
+    def worker(entry: Entry) -> list:
+        reader = PdfReader(entry.path)
+        if not reader.is_encrypted:
+            raise SkipItem("no password")
+        if reader.decrypt(password) == 0:
+            raise ValueError("wrong password, could not decrypt")
+        writer = PdfWriter()
+        for page in reader.pages:
+            writer.add_page(page)
+        stem = stem_of(entry.name)
+        base = re.sub(re.escape(PW_MARK) + r".*$", "", stem) or stem      # drop the password hint
+        out_path = get_unique_path(out_folder, base + ".pdf")
+        write_pdf(writer, out_path)
+        return [os.path.basename(out_path)]
+
+    t0 = begin("Unprotecting")
+    outputs, skipped, failures = run_items(entries, "opening and decrypting", worker, lambda e: e.name)
+    finish("Unprotect PDF", script_dir, t0, outputs, skipped, failures)
+
+
+# ══════════════════════════════════════════════════════════
+#  TOOL 7 - Convert to PDF Precise   (unit-level: Excel sheets, Word pages)
+# ══════════════════════════════════════════════════════════
+def tool_convert_to_pdf_precise(script_dir: str) -> None:
+    index = scan_office_index(script_dir, with_units=True)
+    while True:
+        tokens = prompt_selection(index, "unit", "a1, b, c2-3")
+        codes = dedupe(flatten_codes(tokens))
+        n_sheets = sum(1 for c in codes if index.code_map[c][0].kind == "excel")
+        n_pages = len(codes) - n_sheets
+        if confirm(f"Convert summary (Sheets: {n_sheets}; Pages: {n_pages})",
+                   unit_summary_lines(codes, index)):
+            break
+
+    out_folder = os.path.join(script_dir, OUT_FOLDERS["convert"])
+    announce(script_dir, out_folder)
+    groups = group_by_entry(codes, index)
+    apps = OfficeApps()
+
+    def worker(item: tuple) -> list:
+        entry, idxs = item
+        whole = len(idxs) == entry.count                      # everything selected: no filtering
+        out_path = get_unique_path(out_folder, stem_of(entry.name) + ".pdf")
+        if entry.kind == "excel":
+            keep = None if whole else [entry.unit_names[i] for i in idxs]
+            excel_export(apps.get("excel"), entry.path, out_path, keep)
+        else:
+            word_export(apps.get("word"), entry.path, out_path, None if whole else idxs)
+        return [os.path.basename(out_path)]
+
+    try:
+        t0 = begin("Converting")
+        outputs, skipped, failures = run_items(
+            groups, "converting selection to PDF", worker, lambda it: it[0].name,
+            lambda it: f"{it[0].unit_word}s selected = {[i + 1 for i in it[1]]} of {it[0].count}")
+    finally:
+        apps.close()
+    finish("Convert to PDF Precise", script_dir, t0, outputs, skipped, failures)
+
+
+# ══════════════════════════════════════════════════════════
+#  TOOL 8 - Selective Combine   (unit-level; one output, order as selected)
+# ══════════════════════════════════════════════════════════
+def tool_selective_combine(script_dir: str) -> None:
+    from pypdf import PdfReader, PdfWriter
+    index = scan_pdf_index(script_dir, count_pages=True)
+    while True:
+        tokens = prompt_selection(index, "unit", "a1, b, c4-6")
+        codes = flatten_codes(tokens)                         # order and repeats kept on purpose
+        if confirm(f"Combine summary (Pages: {len(codes)})", unit_summary_lines(codes, index)):
+            break
+
+    out_folder = os.path.join(script_dir, OUT_FOLDERS["combine"])
+    announce(script_dir, out_folder)
+    writer = PdfWriter()
+    readers = {}
+    added = []
+
+    def worker(code: str) -> list:
+        entry, idx = index.code_map[code]
+        if entry.path not in readers:
+            readers[entry.path] = PdfReader(entry.path)
+        writer.add_page(readers[entry.path].pages[idx])
+        added.append(code)
+        return []
+
+    t0 = begin("Combining")
+    _, skipped, failures = run_items(
+        codes, "adding pages", worker,
+        lambda c: f'{index.code_map[c][0].name} {c}',
+        lambda c: f"page = {index.code_map[c][1] + 1} of {index.code_map[c][0].count}")
+    outputs = []
+    if added:
+        n = len(added)
+        out_name = f"Combined {n} page.pdf" if n == 1 else f"Combined {n} pages.pdf"
+        try:
+            out_path = get_unique_path(out_folder, out_name)
+            write_pdf(writer, out_path)
+            outputs.append(os.path.basename(out_path))
+        except Exception as e:
+            failures.append(make_failure(out_name, "writing combined file", f"pages added = {n}", e))
+    finish("Selective Combine", script_dir, t0, outputs, skipped, failures)
+
+
+# ══════════════════════════════════════════════════════════
+#  TOOL 9 - Selective Extract   (unit-level; each token = one output file)
+# ══════════════════════════════════════════════════════════
+def tool_selective_extract(script_dir: str) -> None:
+    from pypdf import PdfReader, PdfWriter
+    index = scan_pdf_index(script_dir, count_pages=True)
+
+    def make_job(codes: list) -> tuple:
+        entry = index.code_map[codes[0]][0]
+        idxs = [index.code_map[c][1] for c in codes]
+        label = f"p{idxs[0] + 1}" if len(idxs) == 1 else f"p{idxs[0] + 1}-{idxs[-1] + 1}"
+        return entry, idxs, f"{stem_of(entry.name)} {label}.pdf"
+
+    while True:
+        tokens = prompt_selection(index, "unit", "a1, b2, c4-6", "Select all, one file per page")
+        jobs = []
+        for t in tokens:
+            if t.prefix:                                       # whole file -> one output per page
+                jobs.extend(make_job([c]) for c in t.codes)
+            else:
+                jobs.append(make_job(t.codes))
+        lines = [f'"{name}"   (Pages: {", ".join(str(i + 1) for i in idxs)})' for _, idxs, name in jobs]
+        if confirm(f"Extract summary (Output files: {len(jobs)})", numbered(lines)):
+            break
+
+    out_folder = os.path.join(script_dir, OUT_FOLDERS["extract"])
+    announce(script_dir, out_folder)
+    readers = {}
+
+    def worker(job: tuple) -> list:
+        entry, idxs, name = job
+        if entry.path not in readers:
+            readers[entry.path] = PdfReader(entry.path)
+        w = PdfWriter()
+        for i in idxs:
+            w.add_page(readers[entry.path].pages[i])
+        out_path = get_unique_path(out_folder, name)
+        write_pdf(w, out_path)
+        return [os.path.basename(out_path)]
+
+    t0 = begin("Extracting")
+    outputs, skipped, failures = run_items(
+        jobs, "extracting pages", worker, lambda j: j[2],
+        lambda j: f'source = "{j[0].name}"; pages = {[i + 1 for i in j[1]]}')
+    finish("Selective Extract", script_dir, t0, outputs, skipped, failures)
+
 
 # ══════════════════════════════════════════════════════════
 #  MENU
 # ══════════════════════════════════════════════════════════
-MENU = """
-  +---------------------------+-----------------------------+
-  |   PDF Tools v1.0_20260615 |                             |
-  +---------------------------+-----------------------------+
-  | BASIC                     | ADVANCE                     |
-  +---------------------------+-----------------------------+
-  | 1 - Convert to PDF        | 7 - Convert to PDF_Precise  |
-  | 2 - Merge PDF             | 8 - Combine PDF Pages       |
-  | 3 - Split PDF             | 9 - Extract PDF Pages       |
-  | 4 - Rotate PDF            |                             |
-  | 5 - Protect PDF           |                             |
-  | 6 - Unprotect PDF         |                             |
-  +---------------------------+-----------------------------+
-  | 0 - Exit                                                |
-  +---------------------------------------------------------+
+MENU_ITEMS_LEFT = ["[1] - Convert to PDF", "[2] - Merge PDF", "[3] - Split PDF",
+                   "[4] - Rotate PDF", "[5] - Protect PDF", "[6] - Unprotect PDF"]
+MENU_ITEMS_RIGHT = ["[7] - Convert to PDF Precise", "[8] - Selective Combine", "[9] - Selective Extract"]
 
-  [Number] - Select a Tool
-  [0] - Exit Session
-"""
+
+def build_menu() -> str:
+    w = 31                                       # inner width of each column
+    bar = "  +" + "-" * w + "+" + "-" * w + "+"
+    full = "  +" + "-" * (2 * w + 1) + "+"
+
+    def row(left: str, right: str) -> str:
+        return f"  | {left:<{w - 1}}| {right:<{w - 1}}|"
+
+    lines = ["", bar, row(f"  PDF Tools {VERSION}", ""), bar, row("BASIC", "ADVANCE"), bar]
+    for i, left in enumerate(MENU_ITEMS_LEFT):
+        right = MENU_ITEMS_RIGHT[i] if i < len(MENU_ITEMS_RIGHT) else ""
+        lines.append(row(left, right))
+    lines += [bar, f"  | {'[0] - Exit':<{2 * w}}|", full, "",
+              "  [1-9] - Select a Tool", "  [0] - Exit Session", ""]
+    return chr(10).join(lines)
+
+
+MENU = build_menu()
 
 TOOLS = {
     "1": ("Convert to PDF",
-          "Converts all Excel and Word files in this folder to PDF (all visible sheets).",
+          "Converts selected Excel and Word files to PDF (all visible sheets).",
           tool_convert_to_pdf),
     "2": ("Merge PDF",
-          "Combines all PDFs in this folder into one, in alphabetical order.",
+          "Merges selected PDFs into one, in the order listed.",
           tool_merge_pdf),
     "3": ("Split PDF",
-          "Splits every PDF in this folder into individual single-page files.",
+          "Splits selected PDFs into individual single-page files.",
           tool_split_pdf),
     "4": ("Rotate PDF",
-          "Rotates selected pages in PDFs by 90/180/270 degrees.",
+          "Rotates selected pages in PDFs by right/left 90/180/270 degrees.",
           tool_rotate_pdf),
     "5": ("Protect PDF",
-          "Adds password protection to all PDFs in this folder.",
+          "Adds password protection to selected PDFs.",
           tool_protect_pdf),
     "6": ("Unprotect PDF",
-          "Removes password protection from all PDFs in this folder.",
+          "Removes password protection from selected PDFs.",
           tool_unprotect_pdf),
-    "7": ("Convert to PDF_Precise",
-          "Converts Excel and Word files to PDF, letting you choose which sheets to include.",
+    "7": ("Convert to PDF Precise",
+          "Converts selected Excel sheets and Word pages to PDF.",
           tool_convert_to_pdf_precise),
-    "8": ("Combine PDF Pages",
-          "Combines selected pages from multiple PDFs into one output PDF.",
-          tool_combine_pdf_pages),
-    "9": ("Extract PDF Pages",
+    "8": ("Selective Combine",
+          "Combines selected pages from multiple PDFs into one PDF.",
+          tool_selective_combine),
+    "9": ("Selective Extract",
           "Extracts selected pages from PDFs as separate files.",
-          tool_extract_pdf_pages),
+          tool_selective_extract),
 }
 
-def main():
+
+def run_tool(name: str, desc: str, fn: Callable, script_dir: str) -> None:
+    """Banner + one tool run. UserCancelled ends quietly; ExitSession propagates to main()."""
+    print(f"\n{'=' * LINE_WIDTH}")
+    print(f"  {name}")
+    print("=" * LINE_WIDTH)
+    print(desc)
+    print()
+    try:
+        fn(script_dir)
+    except UserCancelled:
+        return
+    except ExitSession:
+        raise
+    except NoInput as e:
+        print(f"\n{e}")
+        tail(name, script_dir, [])
+    except Exception as e:
+        failures = [make_failure(name, "running tool", "", e)]
+        print("\nFAILED: tool stopped unexpectedly")
+        for line in failure_lines([(failures[0]["item"], failures[0]["error"])]):
+            print(line)
+        tail(name, script_dir, failures)
+
+
+def main() -> None:
     script_dir = get_script_dir()
     os.chdir(script_dir)
+    for stream in (sys.stdout, sys.stderr):      # a filename the console cannot encode must not crash a tool
+        try:
+            stream.reconfigure(errors="replace")
+        except Exception:
+            pass
 
     while True:
         print(MENU, end="")
@@ -1196,35 +1059,27 @@ def main():
             break
 
         if choice not in TOOLS:
-            print(f"\nInvalid Input: \"{choice}\"\n")
+            print(f'\nInvalid Input: "{choice}"\n')
             continue
 
         name, desc, fn = TOOLS[choice]
-        print(f"\n{'─' * 56}")
-        print(f"  {name}")
-        print(f"{'─' * 56}")
-        print(desc)
-        print()
-
         try:
-            result = fn(script_dir)
-        except Exception as e:
-            print("ERROR: An unexpected error occurred.")
-            print(f"Error Details: {e}")
-            result = None
+            run_tool(name, desc, fn, script_dir)
+        except ExitSession as e:
+            if e.saved_log:
+                print(f'\nSaved: "{e.saved_log}"')
+                input("[Enter] to close...")
+            else:
+                print("\nGoodbye.")
+            break
 
-        if result == "CANCELLED":
-            continue
 
-        print("\n[Enter] - Continue to Menu")
-        print("[0] - Exit Session")
-        choice = input().strip()
-        if choice == "0":
-            sys.exit(0)
-
-try:
-    main()
-except Exception as e:
-    print("ERROR: An unexpected error occurred.")
-    print(f"Error Details: {e}")
-    input("\nPress Enter to close...")
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        print(f"FAILED: {type(e).__name__} - {e}")
+        try:
+            input("\n[Enter] to close...")
+        except Exception:
+            pass

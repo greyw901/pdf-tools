@@ -1,6 +1,6 @@
 # PDF Tools
 
-A free, local process, single file menu-driven command-line utility for everyday PDF work — convert, merge, split, rotate, protect, unprotect, combine, and extract pages.
+A free, local, single-file, menu-driven command-line utility for everyday PDF work — convert, merge, split, rotate, protect, unprotect, and selectively combine or extract pages.
 
 ## Why this exists
 
@@ -9,22 +9,51 @@ Web tools like iLovePDF are convenient, but they mean uploading your file to a t
 - **Local** — files never leave your computer, no account, no upload.
 - **Fast** — [pypdf](https://pypdf.readthedocs.io/) manipulates a PDF's internal object structure directly instead of re-rendering pages, so merge/split/rotate/extract are near-instant even on large files.
 - **Lightweight** — one script or one `.exe`. No Adobe Acrobat, no browser tab.
+- **No surprises** — every tool shows you what it is about to process and waits for your confirmation. Nothing runs on "everything in the folder" behind your back.
+
+## How it works
+
+Every tool follows the same four steps:
+
+1. Pick a tool from the menu
+2. Pick the files (or pages) — by number for whole files, by code like `a1-a20` for pages and sheets
+3. Check the summary and press `[Enter]` to proceed
+4. Read the result: `Outputs`, `Skipped`, `Failed` (with the reason)
+
+```
+  +-------------------------------+-------------------------------+
+  |   PDF Tools v2.0_20261108     |                               |
+  +-------------------------------+-------------------------------+
+  | BASIC                         | ADVANCE                       |
+  +-------------------------------+-------------------------------+
+  | [1] - Convert to PDF          | [7] - Convert to PDF Precise  |
+  | [2] - Merge PDF               | [8] - Selective Combine       |
+  | [3] - Split PDF               | [9] - Selective Extract       |
+  | [4] - Rotate PDF              |                               |
+  | [5] - Protect PDF             |                               |
+  | [6] - Unprotect PDF           |                               |
+  +-------------------------------+-------------------------------+
+  | [0] - Exit                                                    |
+  +---------------------------------------------------------------+
+```
+
+Anything in `[ ]` is a key you press. `[0]` always cancels and takes you back.
 
 ## Tools
 
 | # | Tool | What it does |
 |---|------|---------------|
-| 1 | Convert to PDF | Converts all Excel/Word files in the folder to PDF (all visible sheets) |
-| 2 | Merge PDF | Combines all PDFs in the folder into one, alphabetical order |
-| 3 | Split PDF | Splits every PDF into individual single-page files |
-| 4 | Rotate PDF | Rotates selected pages by 90 / 180 / 270° |
-| 5 | Protect PDF | Adds password protection to all PDFs in the folder |
+| 1 | Convert to PDF | Converts the Excel/Word files you pick to PDF (all visible sheets) |
+| 2 | Merge PDF | Merges the PDFs you pick into one, in the order you type |
+| 3 | Split PDF | Splits the PDFs you pick into single-page files |
+| 4 | Rotate PDF | Rotates selected pages right/left by 90 / 180° (`R90`, `L90`, `R180`, `L180`) |
+| 5 | Protect PDF | Adds password protection to the PDFs you pick |
 | 6 | Unprotect PDF | Removes password protection |
-| 7 | Convert to PDF_Precise | Same as #1, but lets you choose which Excel sheets to include |
-| 8 | Combine PDF Pages | Pick and reorder specific pages across multiple PDFs into one output |
-| 9 | Extract PDF Pages | Pulls specific pages out of PDFs as separate files |
+| 7 | Convert to PDF Precise | Like #1, but you pick which Excel sheets or Word pages to include |
+| 8 | Selective Combine | Picks specific pages across multiple PDFs into one output, in the order you type |
+| 9 | Selective Extract | Pulls specific pages out of PDFs as separate files |
 
-Full walkthrough — selection syntax (`a1, b2, c4-6`), menu screenshots, and troubleshooting — is in [INSTRUCTIONS.md](INSTRUCTIONS.md).
+Full walkthrough — selection syntax (`1, 3, 4-6` for files, `a1, b2, c4-6` for pages), screens, and troubleshooting — is in [INSTRUCTIONS.md](INSTRUCTIONS.md).
 
 ## Requirements
 
@@ -38,7 +67,6 @@ Full walkthrough — selection syntax (`a1, b2, c4-6`), menu screenshots, and tr
 2. Put PDF Tools.py in that folder
 3. Put the files you want to process in the same folder
 
-
 ## Run
 
 ```bash
@@ -47,11 +75,11 @@ python "PDF Tools.py"
 
 or
 
-Double-click PDF Tools.py 
+Double-click PDF Tools.py
 
-## Pre-built Windows .exe 
+## Pre-built Windows .exe
 
-Or grab a pre-built Windows `.exe` from the [Releases](../../releases) page — no Python install needed.
+Or grab a pre-built Windows `.exe` from the [Releases](../../releases) page — no Python install needed. Put it in the same folder as your files and double-click.
 
 Windows may show a SmartScreen warning on first run — click "More info" then "Run anyway".
 
@@ -64,11 +92,25 @@ Windows may show a SmartScreen warning on first run — click "More info" then "
 
 ## Output
 
-Every tool writes to its own subfolder next to the script (`Merged\`, `Split\`, `Rotated\`, etc.). Original input files are never modified or deleted.
+Every tool writes to its own subfolder next to the script (`Merged\`, `Split\`, `Rotated\`, etc.). Original input files are never modified or deleted. If an output name already exists, `_1`, `_2` ... is added instead of overwriting.
+
+## When something fails
+
+A failed file never stops the others. It is listed under `Failed:` with the reason, and choosing `[0] - Save error log and Exit Session` at the end writes `error log_YYYYMMDD.txt` next to the tool — step, error, file path and full traceback, so the problem can be diagnosed without re-describing it.
 
 ## Note on Protect PDF
 
-The password you set is included in the output filename (e.g. `Report_pw_ABCd123.pdf`) so you can see it at a glance. Strip it from the filename before sending the file to anyone else.
+The password you set is included in the output filename (e.g. `Report_pw_ABCd123.pdf`) so you can see it at a glance. Strip it from the filename before sending the file to anyone else. Unprotect PDF removes the `_pw_...` part again when it writes the unlocked copy.
+
+## What's new in v2.0
+
+- Every tool now asks which files (or pages) to use and shows a summary before anything runs.
+- Whole files are picked by number (`[1]`, `[2]` ...), pages and sheets by code (`a1-a20`).
+- Rotate takes direction + angle (`R90`, `L180`).
+- Convert to PDF Precise now works on Word pages as well as Excel sheets.
+- "Combine PDF Pages" and "Extract PDF Pages" are now **Selective Combine** and **Selective Extract**.
+- Consistent result report across all tools, with the failure reason for each file and a saveable error log.
+- Output names use spaces instead of underscores (`Report Merged.pdf`, `Report p3.pdf`).
 
 ---
 

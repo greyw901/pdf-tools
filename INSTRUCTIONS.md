@@ -8,104 +8,106 @@
 2. Put the script/exe in the same folder as the files you want to process (PDF, Excel, or Word).
 3. Run it and pick a tool number from the menu.
 
+Every tool follows the same flow, and **nothing is processed until you have seen a summary and pressed `[Enter]`**:
+
+1. Pick a tool
+2. Pick the files (or pages)
+3. Check the summary, `[Enter]` to proceed
+4. Read the result: `Outputs` / `Skipped` / `Failed`
+
 ## Main Menu
 
 ```
-  +---------------------------+-----------------------------+
-  |   PDF Tools v1.0_20260615 |                             |
-  +---------------------------+-----------------------------+
-  | BASIC                     | ADVANCE                     |
-  +---------------------------+-----------------------------+
-  | 1 - Convert to PDF        | 7 - Convert to PDF_Precise  |
-  | 2 - Merge PDF             | 8 - Combine PDF Pages       |
-  | 3 - Split PDF             | 9 - Extract PDF Pages       |
-  | 4 - Rotate PDF            |                             |
-  | 5 - Protect PDF           |                             |
-  | 6 - Unprotect PDF         |                             |
-  +---------------------------+-----------------------------+
-  | 0 - Exit                                                |
-  +---------------------------------------------------------+
+  +-------------------------------+-------------------------------+
+  |   PDF Tools v2.0_20261108     |                               |
+  +-------------------------------+-------------------------------+
+  | BASIC                         | ADVANCE                       |
+  +-------------------------------+-------------------------------+
+  | [1] - Convert to PDF          | [7] - Convert to PDF Precise  |
+  | [2] - Merge PDF               | [8] - Selective Combine       |
+  | [3] - Split PDF               | [9] - Selective Extract       |
+  | [4] - Rotate PDF              |                               |
+  | [5] - Protect PDF             |                               |
+  | [6] - Unprotect PDF           |                               |
+  +-------------------------------+-------------------------------+
+  | [0] - Exit                                                    |
+  +---------------------------------------------------------------+
 
-  [Number] - Select a Tool
+  [1-9] - Select a Tool
   [0] - Exit Session
 ```
 
-BASIC tools run automatically, no selection needed. ADVANCE tools are interactive — you choose what to process.
+Keys in `[ ]` are what you press. Tools 1, 2, 3, 5, 6 work on whole files, picked by number. Tools 4, 7, 8, 9 work on individual pages or sheets, picked by code (`a1-a20`).
 
 ## Output Folders
 
 | Tool | Output |
 |------|--------|
-| 1 - Convert to PDF | `To PDF\` subfolder |
-| 2 - Merge PDF | `Merged\` subfolder |
-| 3 - Split PDF | `Split\` subfolder |
-| 4 - Rotate PDF | `Rotated\` subfolder |
-| 5 - Protect PDF | `Protected\` subfolder |
-| 6 - Unprotect PDF | `Unprotected\` subfolder |
-| 7 - Convert to PDF_Precise | `To PDF\` subfolder |
-| 8 - Combine PDF Pages | `Combined\` subfolder |
-| 9 - Extract PDF Pages | `Extract\` subfolder |
+| 1 - Convert to PDF | `To PDF\` |
+| 2 - Merge PDF | `Merged\` |
+| 3 - Split PDF | `Split\` |
+| 4 - Rotate PDF | `Rotated\` |
+| 5 - Protect PDF | `Protected\` |
+| 6 - Unprotect PDF | `Unprotected\` |
+| 7 - Convert to PDF Precise | `To PDF\` |
+| 8 - Selective Combine | `Combined\` |
+| 9 - Selective Extract | `Extract\` |
 
-Input files are never modified or deleted.
+Input files are never modified or deleted. If an output name already exists, `_1`, `_2` ... is added.
 
 ## What Each Tool Does
 
-**1 — Convert to PDF**
-Converts all Excel (`.xls .xlsx .xlsm .xlsb`) and Word (`.doc .docx`) files in the folder to PDF. Excel: all visible sheets combined into one PDF per file. Word: entire document exported as PDF. Requires Microsoft Excel and Word to be installed.
+**1 — Convert to PDF** — Converts the Excel (`.xls .xlsx .xlsm .xlsb`) and Word (`.doc .docx`) files you pick to PDF. Excel: all visible sheets in one PDF per file. Word: the whole document. Output: `name.pdf`. Needs Microsoft Excel and Word.
 
-**2 — Merge PDF**
-Combines all PDFs in the folder into one, in alphabetical (A-Z) order by filename.
-Output: `firstfile_merged.pdf`
+**2 — Merge PDF** — Merges the PDFs you pick into one, in the order you type (`3, 1` merges file 3 first). Enter = all files in list order. Output: `firstfile Merged.pdf`.
 
-**3 — Split PDF**
-Splits every PDF into individual single-page files.
-Output: `filename_1.pdf`, `filename_2.pdf`, ...
+**3 — Split PDF** — Splits each PDF you pick into single-page files. Output: `name p1.pdf`, `name p2.pdf`, ...
 
-**4 — Rotate PDF**
-Select pages to rotate and choose an angle (90/180/270). Selected pages rotate; all other pages stay unchanged.
-Output: `filename_rotated.pdf`
+**4 — Rotate PDF** — Pick pages, then enter direction + angle: `R90`, `L90`, `R180`, `L180`. Picked pages rotate; the rest stay unchanged. Output: `name Rotated.pdf`.
 
-**5 — Protect PDF**
-Adds password protection to all PDFs in the folder. You'll be prompted for a password.
-Output: `filename_pw_PASSWORD.pdf` — remove the password from the filename before sending the file to anyone else.
+**5 — Protect PDF** — Adds a password to the PDFs you pick. Output: `name_pw_PASSWORD.pdf` — remove the password from the filename before sending the file to anyone else. Files that already have `_pw_` in the name, or are already encrypted, are skipped.
 
-**6 — Unprotect PDF**
-Removes password protection from all PDFs. You'll be prompted for the password.
-Output: `filename_unprotected.pdf`. Files that were never password-protected are skipped automatically — not treated as failures.
+**6 — Unprotect PDF** — Removes the password from the PDFs you pick. Output: `name.pdf` (the `_pw_PASSWORD` part is dropped). Files that were never password-protected are skipped, not treated as failures.
 
-**7 — Convert to PDF_Precise**
-Same as #1, but lets you choose which sheets to include for each Excel file before converting. Requires Microsoft Excel and Word.
+**7 — Convert to PDF Precise** — Like tool 1, but you pick which Excel **sheets** or which Word **pages** to include. Needs Microsoft Excel and Word.
 
-**8 — Combine PDF Pages**
-Select specific pages from multiple PDFs and combine them into one PDF in your chosen order. Press Enter with no input to combine all files in full (works as a general merge tool too).
+**8 — Selective Combine** — Pick pages from one or more PDFs and combine them into **one** PDF, in the order you type. A page can be used more than once. Output: `Combined 12 pages.pdf`.
 
-**9 — Extract PDF Pages**
-Select specific pages to extract from PDFs. Each comma-separated token becomes its own output file. Press Enter with no input to split everything into individual pages.
+**9 — Selective Extract** — Pick pages; each comma-separated item becomes its own PDF. `a2-3` gives one PDF with pages 2-3; a whole file (`b`) gives one PDF per page. Output: `name p3.pdf`, `name p2-3.pdf`, ...
 
-## How Selection Works (Tools 4, 7, 8, 9)
+## How Selection Works
 
-Files or sheets are listed with codes when the tool starts:
+Tools 1, 2, 3, 5, 6 list **files** by number:
 
 ```
-a (Pages: a1-a20) - Report.pdf
-b (Pages: b1-b5)  - Invoice.pdf
+  [1] - "Report.pdf"
+  [2] - "Invoice.pdf"
 ```
 
-Token syntax:
+Tools 4, 7, 8, 9 list **pages** (Excel files in tool 7 list sheets):
 
-| Input | Meaning |
-|-------|---------|
+```
+  a Pages: [a1-a20] - "Report.pdf"
+  b Pages: [b1-b5] - "Invoice.pdf"
+```
+
+| Files (1, 2, 3, 5, 6) | Meaning |
+|---|---|
+| `1` | file 1 |
+| `1, 3` | files 1 and 3 |
+| `4-6` | files 4, 5 and 6 |
+
+| Pages (4, 7, 8, 9) | Meaning |
+|---|---|
 | `a1` | single page |
 | `a1-a9` | range of pages within the same file |
 | `a` | all pages of file a |
 | `a1-a9, b, a14` | mix of pages, ranges, and full files |
 
-(Tool 7's sheet selector uses the same format with plain numbers instead of page codes, e.g. `1, 2, 4-6`.)
-
 Every selection prompt looks like:
 
 ```
-[Selections] - e.g. a1, b2, c4-6
+[Selections] - e.g. [a1, b2, c4-6]
 [Enter] - Select all
 [0] - Cancel & Return to Menu
 ```
@@ -119,30 +121,52 @@ Invalid Input: "xyz"
 [0] - Cancel & Return to Menu
 ```
 
-Choosing `0` at any of these steps cancels the current tool and returns you directly to the main menu.
+After picking, a summary is shown:
+
+```
+Rotate summary (Pages: 1; Rotation: R90):
+  Report.pdf
+    a1 - page 1
+
+[Enter] - Proceed
+[N] - Re-enter
+[0] - Cancel & Return to Menu
+```
+
+`[0]` at any prompt cancels the tool and returns directly to the main menu.
 
 ## Unreadable Files
 
-If a file can't be opened (corrupted, encrypted, etc.), all unreadable files are listed together up front:
+Tools 4, 7, 8, 9 need page or sheet counts, so unreadable files are listed once before the file list:
 
 ```
-Unreadable PDF:
-"file1.pdf"
-"file2.pdf"
+Unreadable: 1
+   1. "file1.pdf"   :   PdfStreamError - Stream has ended unexpectedly
 
 [Enter] - Skip & Continue
 [0] - Cancel & Return to Menu
 ```
 
-## Skipped vs. Failed Files
+For the other tools an unreadable file shows up under `Failed` after processing.
 
-Some files are skipped automatically — not a failure, just nothing to do for that file:
+## Reading the Result
 
-- Skipped (already protected) — Tool 5
-- Skipped (already unprotected) — Tool 6
-- Skipped (no password) — Tool 6
+```
+Outputs: 2
+   1. "Report Rotated.pdf"
+   2. "Invoice Rotated.pdf"
 
-Genuine failures (corrupted file, wrong password, etc.) are listed separately at the end under `Failed:`, one item per line.
+Skipped: 1
+   1. "Plain.pdf"   :   no password
+
+Failed: 1
+   1. "Broken.pdf"   :   ValueError - wrong password, could not decrypt
+
+Elapsed: 0.4s
+```
+
+- **Skipped** — nothing to do for that file; not a problem.
+- **Failed** — something went wrong; the reason follows the colon.
 
 ## After a Tool Finishes
 
@@ -150,6 +174,8 @@ Genuine failures (corrupted file, wrong password, etc.) are listed separately at
 [Enter] - Continue to Menu
 [0] - Exit Session
 ```
+
+When something failed, the second line becomes `[0] - Save error log and Exit Session`. It writes `error log_YYYYMMDD.txt` next to the exe with the step, error, context and traceback for every failure.
 
 ## Requirements
 
@@ -161,10 +187,10 @@ Genuine failures (corrupted file, wrong password, etc.) are listed separately at
 | Symptom | Cause / Fix |
 |---|---|
 | Console closes immediately | Input files missing from folder — place files in the same folder as the script/exe |
-| Tool 1 or 7 fails | Microsoft Office not installed, or an Office process is stuck — close any lingering Excel.exe / WINWORD.exe |
-| File listed under "Failed" | File corrupted, password-protected, or open in another program |
+| Tool 1 or 7 fails | Microsoft Office not installed, or an Office process is stuck — close any lingering EXCEL.EXE / WINWORD.EXE |
+| File listed under "Failed" | Read the reason after the colon; save the error log with `[0]` |
 | Wrong password on Unprotect | Check the filename for the `_pw_PASSWORD` hint |
-| File listed under "Skipped (no password)" | Tool 6 only — this file was never password-protected; nothing to do |
+| File listed under "Skipped" | Nothing to do for that file; the reason is shown after the colon |
 | Antivirus blocks the `.exe` | Unsigned binary — whitelist it with your antivirus/IT if needed |
 | Windows says "Windows protected your PC" | SmartScreen flag on unsigned executables — click "More info" then "Run anyway" |
 
@@ -172,26 +198,62 @@ Genuine failures (corrupted file, wrong password, etc.) are listed separately at
 
 ## For Developers
 
-### Master Script Structure
+### Single-file layout (`PDF Tools.py`, top to bottom)
 
-| Function | Description |
+| Block | Contents |
 |---|---|
-| `get_script_dir()` | Path resolution for `.py` / `.exe` |
-| `get_unique_path()` | Naming collision handler |
-| `get_pdf_files()` | Lists `.pdf` files in folder |
-| `prefix_generator()` | Yields `a, b, ..., z, aa, ab...` |
-| `tool_convert_to_pdf()` | Tool 1 |
-| `tool_merge_pdf()` | Tool 2 |
-| `tool_split_pdf()` | Tool 3 |
-| `tool_protect_pdf()` | Tool 5 |
-| `tool_unprotect_pdf()` | Tool 6 |
-| `tool_convert_to_pdf_precise()` | Tool 7 |
-| `tool_combine_pdf_pages()` | Tool 8 |
-| `tool_extract_pdf_pages()` | Tool 9 |
-| `tool_rotate_pdf()` | Tool 4 |
-| `MENU` | Menu display string |
-| `TOOLS` | Dict: number → (name, desc, function) |
-| `main()` | Menu loop |
+| Constants | `VERSION`, `LINE_WIDTH`, `MAX_LISTED`, extensions, `PW_MARK`, `OUT_FOLDERS` |
+| Signals | `UserCancelled`, `NoInput`, `ExitSession`, `SkipItem` |
+| Paths / naming | `get_script_dir`, `get_unique_path`, `list_files`, `prefix_generator`, `dedupe` |
+| File index + selection | `Entry`, `Token`, `Index`, `scan_pdf_index`, `parse_tokens`, `prompt_selection`, `confirm`, `prompt_password`, `unit_summary_lines` |
+| Processing + report | `run_items`, `begin`, `finish`, `tail`, `write_error_log`, `make_failure` |
+| Office helpers | `OfficeApps`, `excel_export`, `word_export`, `scan_office_index` |
+| Tools | nine thin `tool_xxx()` functions |
+| Menu | `MENU`, `TOOLS`, `run_tool`, `main` |
+
+Logic used by more than one tool lives in the shared blocks. A `tool_xxx()` holds only its own prompts and its worker.
+
+### The same flow in every tool
+
+```
+scan files once -> prompt_selection -> (tool prompt) -> confirm
+  -> announce folders -> begin("Gerund") -> run_items -> finish
+```
+
+- Selection level is `"file"` (tools 1, 2, 3, 5, 6) or `"unit"` (4, 7, 8, 9). One parser, one set of prompts.
+- The scan happens **once**, before the selection loop; `[N]` re-enter never re-scans or re-shows `Unreadable`.
+- The `confirm()` summary doubles as the run report's `Inputs` block (on screen before processing, lists what will be processed).
+- Workers return output names and never print. `run_items` is the only loop; it files exceptions into `Failed` / `Skipped`.
+- `begin()` is the statement directly before `run_items`, so the last line on screen always names the running stage.
+
+### Cancel / exit architecture (exceptions, not return values)
+
+| Exception | Raised when | Caught in |
+|---|---|---|
+| `UserCancelled` | `[0]` at any prompt | `run_tool()` → back to menu |
+| `NoInput` | no files found for the tool | `run_tool()` → normal tail |
+| `ExitSession` | `[0]` at the tail | `main()` → close |
+| `SkipItem` | worker: nothing to do for the item | `run_items()` |
+
+This replaces the v1.x `"CANCELLED"` string return, which every caller had to remember to check. New mid-tool exit point: `raise UserCancelled()`, never `return`. An unexpected exception inside a tool is caught in `run_tool()`, shown as `FAILED`, and goes to the normal tail so the log can be saved.
+
+### Error log
+
+Written only when `[0]` is pressed at the tail. `make_failure()` calls `traceback.format_exc()` **inside** the `except` block — outside it the traceback is gone. Fields per entry: Step, Error, Context, Traceback. Filename `error log_YYYYMMDD.txt`, same-day re-runs get `_1`, `_2`.
+
+### Output naming
+
+All outputs are deliverables: no run date, words separated by spaces, underscore only for the collision counter. One deliberate exception: Protect PDF keeps `name_pw_PASSWORD.pdf` so the password hint travels with the file; Unprotect strips it. The `_unprotected` suffix and its skip check were removed — Unprotect skips by `reader.is_encrypted`.
+
+### Tool notes
+
+- **Merge** — order is the order typed; output stem is the first file that merged successfully.
+- **Protect** — skips when the stem contains `_pw_` or the file is already encrypted. Passwords containing `\ / : * ? " < > |` are rejected (they go into the filename).
+- **Unprotect** — not encrypted → Skipped; `decrypt() == 0` → Failed.
+- **Convert to PDF Precise** — Excel: unselected visible sheets are hidden, then exported (workbook closed unsaved). Word has no multi-range export, so the whole document is exported to a temp PDF and the picked pages are copied out with pypdf. Page counts come from Word (`ComputeStatistics`); if Word and the PDF ever disagree on pagination, that file lands in `Failed`.
+- **Selective Combine** — pages keep typed order and repeats.
+- **Selective Extract** — a whole-file token expands to one job per page.
+- Office lock files (`~$name.xlsx`) are ignored when listing. Lists longer than `MAX_LISTED` (20) print `... and n more`.
 
 ### Path Resolution
 
@@ -203,68 +265,9 @@ script_dir = os.path.dirname(os.path.abspath(
 
 `.py` mode resolves to the script's location; `.exe` mode resolves to the exe's location. Don't switch this to `os.getcwd()` or `sys.argv[0]`.
 
-### Cancel / Exit Architecture
-
-Two distinct outcomes are tracked separately:
-
-- **`"CANCELLED"`** — any `tool_xxx()` function returns this string when the user chooses `0` at a mid-process prompt. `main()` checks for it and skips the "Continue to Menu / Exit Session" prompt, looping straight back to the menu.
-- **Normal completion** — `tool_xxx()` returns `None`. `main()` then shows the Continue/Exit prompt, where `0` is a genuine `sys.exit(0)`.
-
-Any new mid-tool exit point added to a tool function should also return `"CANCELLED"`, not just `return` or `break` — otherwise cancel will look identical to "completed" to the user.
-
-### File Scanning Pattern (Tools 4, 8, 9)
-
-Rotate PDF, Combine PDF Pages, and Extract PDF Pages all scan the folder's PDFs **exactly once** before entering the selection loop. Unreadable files are collected and shown in a single prompt — not re-triggered on every loop iteration (e.g. when the user presses `N` to re-enter a selection). Keep the scan (`code_map` / `prefix_page_map` / `display_lines`) outside the `while` loop if extending these tools.
-
-### Selection Prompt Convention
-
-Every selection-entry prompt (Tools 4, 7, 8, 9) uses the same three-line shape:
-
-```
-[Selections] - e.g. <context-appropriate example>
-[Enter] - Select all
-[0] - Cancel & Return to Menu
-```
-
-Only the example after "e.g." changes (page codes for PDF-page tools, plain numbers for Tool 7's sheet selector).
-
-### Summary Line Conventions
-
-Use "Pages:" / "Output files:" not the grammatically-awkward "N page(s)" / "N output file(s)":
-
-```
-Selection summary (Pages: N):
-Extract summary (Output files: N):
-Rotate summary (Pages: N; Rotation: <angle>):
-```
-
-Skipped/Failed/Unreadable lists never comma-join multiple items onto one line — one heading, then one item per line, quoted:
-
-```
-Failed:
-  "file1.pdf"
-  "file2.pdf"
-```
-
-### Output Reporting Conventions
-
-Tools with no pre-confirm summary (Merge, Split, Protect, Unprotect): list source filenames being processed, then after processing completes, print `Output: <location>` on its own line, followed by the output filename(s) each on their own line — never on the same line as `Output:`.
-
-Exception: Split only prints the output folder (no filename list — splitting can produce dozens of files). Extract behaves the same way for the same reason.
-
-### Skipped vs. Failed — Three-Way Branch in Tool 6 (Unprotect)
-
-Checked in this order, per file:
-
-1. Filename ends with `_unprotected` → Skipped (already unprotected) — no further processing
-2. `reader.is_encrypted` is `False` → Skipped (no password) — no output written, **not** a failure
-3. `reader.is_encrypted` is `True` → attempt `decrypt()`; wrong password raises `ValueError` → Failed; correct password → rebuild and write to Output
-
-Four separate buckets (`already_ok`, `no_password`, `success`, `errors`) are tracked and printed under four separate headings — don't merge "no password to begin with" into the same bucket as "failed to unlock."
-
 ### Versioning
 
-Format: `v{major}.{minor}_{YYYYMMDD}`. Current: `v1.0_20260615`. Update in the `MENU` string inside `PDF Tools.py`.
+Format: `v{major}.{minor}_{YYYYMMDD}`. Current: `v2.0_20261108`. Update the `VERSION` constant in `PDF Tools.py`, `version_info.txt`, and this file.
 
 ### Packaging
 
@@ -273,7 +276,7 @@ pip install pyinstaller
 pyinstaller --onefile --version-file=version_info.txt "PDF Tools.py"
 ```
 
-`version_info.txt` embeds author/version info into the exe's Windows Properties > Details tab — this is what survives if the `.exe` ever gets forwarded on its own, with no source code or docs attached. Without `--version-file`, those Properties fields are blank.
+`version_info.txt` embeds author/version info into the exe's Windows Properties > Details tab — this is what survives if the `.exe` ever gets forwarded on its own, with no source code or docs attached.
 
 Output: `dist/PDF Tools.exe`. The `build/` folder can be deleted after packaging; keep the generated `.spec` file for faster repeat builds (`pyinstaller "PDF Tools.spec"`).
 
@@ -287,7 +290,7 @@ If tools 1 or 7 crash in the `.exe` but work fine as a `.py` file, add this to `
 
 | Library | Used by | Install |
 |---|---|---|
-| pypdf | Tools 2, 3, 4, 5, 6, 8, 9 | `pip install pypdf` |
+| pypdf | Tools 2, 3, 4, 5, 6, 7 (Word pages), 8, 9 | `pip install pypdf` |
 | pywin32 | Tools 1, 7 | `pip install pywin32` |
 | pyinstaller | Packaging only | `pip install pyinstaller` |
 
@@ -298,12 +301,12 @@ Python 3.8+. Microsoft Excel and Word required on the machine running the script
 - No code signing — antivirus may flag the `.exe`.
 - Tools 1 and 7 require Microsoft Office on the machine running the tool.
 - No auto-update — distribute new versions manually.
-- Rotate PDF (Tool 4) applies one angle per run. For mixed angles, run the tool again on the output.
+- Rotate PDF applies one direction + angle per run. For mixed angles, run the tool again on the output.
+- The password prompt is visible by design.
 
 ---
-**Version:** v1.0_20260615
+**Version:** v2.0_20261108
 
 **Author:** Yeoh Huey Sun
 **Email:** greyw901@gmail.com
 **GitHub:** https://github.com/greyw901
-
