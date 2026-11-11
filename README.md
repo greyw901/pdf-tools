@@ -26,14 +26,14 @@ Every tool follows the same four steps:
   +-------------------------------+-------------------------------+
   | BASIC                         | ADVANCE                       |
   +-------------------------------+-------------------------------+
-  | [1] - Convert to PDF          | [7] - Convert to PDF Precise  |
-  | [2] - Merge PDF               | [8] - Selective Combine       |
-  | [3] - Split PDF               | [9] - Selective Extract       |
-  | [4] - Rotate PDF              |                               |
-  | [5] - Protect PDF             |                               |
-  | [6] - Unprotect PDF           |                               |
+  | [1] Convert to PDF            | [7] Convert to PDF Precise    |
+  | [2] Merge PDF                 | [8] Selective Combine         |
+  | [3] Split PDF                 | [9] Selective Extract         |
+  | [4] Rotate PDF                |                               |
+  | [5] Protect PDF               |                               |
+  | [6] Unprotect PDF             |                               |
   +-------------------------------+-------------------------------+
-  | [00] - Exit                                                   |
+  | [00] Exit                                                     |
   +---------------------------------------------------------------+
 
   --------------------------------------------------------

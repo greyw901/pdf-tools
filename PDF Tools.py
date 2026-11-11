@@ -325,7 +325,7 @@ def prompt_selection(index: Index, level: str, heading: str, example: str, first
     print()
     for line in index.display_lines(level):
         print(line)
-    divider(["[#] Select", "[Enter] Select all"] + nav_keys(first))
+    divider(["[Enter] Select all", "[#] Select"] + nav_keys(first))
     while True:
         raw = input("> ").strip()
         check_nav(raw, first)
@@ -1070,13 +1070,13 @@ def build_menu() -> str:
     def row(left: str, right: str) -> str:
         return f"| {left:<{w - 1}}| {right:<{w - 1}}|"
 
-    cell = lambda k: f"[{k}] - {TOOLS[k][0]}"
+    cell = lambda k: f"[{k}] {TOOLS[k][0]}"
     lefts = [cell(k) for k in "123456"]
     rights = [cell(k) for k in "789"]
     lines = [bar, row(f"  PDF Tools {VERSION}", ""), bar, row("BASIC", "ADVANCE"), bar]
     for i, left in enumerate(lefts):
         lines.append(row(left, rights[i] if i < len(rights) else ""))
-    lines += [bar, f"| {'[00] - Exit':<{2 * w}}|", full]
+    lines += [bar, f"| {'[00] Exit':<{2 * w}}|", full]
     return chr(10).join(lines)
 
 

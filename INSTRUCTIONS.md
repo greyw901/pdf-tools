@@ -23,14 +23,14 @@ Every tool follows the same flow, and **nothing is processed until you have seen
 +-------------------------------+-------------------------------+
 | BASIC                         | ADVANCE                       |
 +-------------------------------+-------------------------------+
-| [1] - Convert to PDF          | [7] - Convert to PDF Precise  |
-| [2] - Merge PDF               | [8] - Selective Combine       |
-| [3] - Split PDF               | [9] - Selective Extract       |
-| [4] - Rotate PDF              |                               |
-| [5] - Protect PDF             |                               |
-| [6] - Unprotect PDF           |                               |
+| [1] Convert to PDF            | [7] Convert to PDF Precise    |
+| [2] Merge PDF                 | [8] Selective Combine         |
+| [3] Split PDF                 | [9] Selective Extract         |
+| [4] Rotate PDF                |                               |
+| [5] Protect PDF               |                               |
+| [6] Unprotect PDF             |                               |
 +-------------------------------+-------------------------------+
-| [00] - Exit                                                   |
+| [00] Exit                                                     |
 +---------------------------------------------------------------+
 
 --------------------------------------------------------
@@ -112,8 +112,8 @@ Eg.: a1, b2, c4-6
    b Pages: [b1-b5] - "Invoice.pdf"
 
 --------------------------------------------------------
-[#] Select
 [Enter] Select all
+[#] Select
 [0] Back to menu
 [00] Exit
 
