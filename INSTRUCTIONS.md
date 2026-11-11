@@ -12,48 +12,43 @@ Every tool follows the same flow, and **nothing is processed until you have seen
 
 1. Pick a tool
 2. Pick the files (or pages)
-3. Check the summary, `[Enter]` to proceed
+3. Check the summary, `[Enter]` to confirm
 4. Read the result: `Outputs` / `Skipped` / `Failed`
 
 ## Main Menu
 
 ```
-  +-------------------------------+-------------------------------+
-  |   PDF Tools v2.0_20261108     |                               |
-  +-------------------------------+-------------------------------+
-  | BASIC                         | ADVANCE                       |
-  +-------------------------------+-------------------------------+
-  | [1] - Convert to PDF          | [7] - Convert to PDF Precise  |
-  | [2] - Merge PDF               | [8] - Selective Combine       |
-  | [3] - Split PDF               | [9] - Selective Extract       |
-  | [4] - Rotate PDF              |                               |
-  | [5] - Protect PDF             |                               |
-  | [6] - Unprotect PDF           |                               |
-  +-------------------------------+-------------------------------+
-  | [0] - Exit                                                    |
-  +---------------------------------------------------------------+
++-------------------------------+-------------------------------+
+|   PDF Tools v2.1_20261111     |                               |
++-------------------------------+-------------------------------+
+| BASIC                         | ADVANCE                       |
++-------------------------------+-------------------------------+
+| [1] - Convert to PDF          | [7] - Convert to PDF Precise  |
+| [2] - Merge PDF               | [8] - Selective Combine       |
+| [3] - Split PDF               | [9] - Selective Extract       |
+| [4] - Rotate PDF              |                               |
+| [5] - Protect PDF             |                               |
+| [6] - Unprotect PDF           |                               |
++-------------------------------+-------------------------------+
+| [00] - Exit                                                   |
++---------------------------------------------------------------+
 
-  [1-9] - Select a Tool
-  [0] - Exit Session
+--------------------------------------------------------
+[#] Select
+[00] Exit
+
+>
 ```
 
-Keys in `[ ]` are what you press. Tools 1, 2, 3, 5, 6 work on whole files, picked by number. Tools 4, 7, 8, 9 work on individual pages or sheets, picked by code (`a1-a20`).
+Every other screen has the same shape: a `=` line on top, the question, the choices, a `-` line, the keys you can press, a blank line, then a `>` where you type. Keys in `[ ]` are what you press. Tools 1, 2, 3, 5, 6 work on whole files, picked by number. Tools 4, 7, 8, 9 work on individual pages or sheets, picked by code (`a1-a20`).
 
-## Output Folders
+## Where the Output Goes
 
-| Tool | Output |
-|------|--------|
-| 1 - Convert to PDF | `To PDF\` |
-| 2 - Merge PDF | `Merged\` |
-| 3 - Split PDF | `Split\` |
-| 4 - Rotate PDF | `Rotated\` |
-| 5 - Protect PDF | `Protected\` |
-| 6 - Unprotect PDF | `Unprotected\` |
-| 7 - Convert to PDF Precise | `To PDF\` |
-| 8 - Selective Combine | `Combined\` |
-| 9 - Selective Extract | `Extract\` |
+Every tool writes its result **next to the input files**, in the same folder as the exe. The exceptions are **Split PDF** (`Split\`) and **Selective Extract** (`Extract\`), which can produce many files at once.
 
 Input files are never modified or deleted. If an output name already exists, `_1`, `_2` ... is added.
+
+Because results land in the same folder, they show up in the file list the next time you run a tool (for example `Report Merged.pdf`). Move finished files out when you no longer want them listed.
 
 ## What Each Tool Does
 
@@ -80,15 +75,15 @@ Input files are never modified or deleted. If an output name already exists, `_1
 Tools 1, 2, 3, 5, 6 list **files** by number:
 
 ```
-  [1] - "Report.pdf"
-  [2] - "Invoice.pdf"
+   [1] "Report.pdf"
+   [2] "Invoice.pdf"
 ```
 
 Tools 4, 7, 8, 9 list **pages** (Excel files in tool 7 list sheets):
 
 ```
-  a Pages: [a1-a20] - "Report.pdf"
-  b Pages: [b1-b5] - "Invoice.pdf"
+   a Pages: [a1-a20] - "Report.pdf"
+   b Pages: [b1-b5] - "Invoice.pdf"
 ```
 
 | Files (1, 2, 3, 5, 6) | Meaning |
@@ -104,47 +99,81 @@ Tools 4, 7, 8, 9 list **pages** (Excel files in tool 7 list sheets):
 | `a` | all pages of file a |
 | `a1-a9, b, a14` | mix of pages, ranges, and full files |
 
-Every selection prompt looks like:
+A selection screen looks like this:
 
 ```
-[Selections] - e.g. [a1, b2, c4-6]
-[Enter] - Select all
-[0] - Cancel & Return to Menu
+========================================================
+
+Select pages to rotate
+
+Eg.: a1, b2, c4-6
+
+   a Pages: [a1-a20] - "Report.pdf"
+   b Pages: [b1-b5] - "Invoice.pdf"
+
+--------------------------------------------------------
+[#] Select
+[Enter] Select all
+[0] Back to menu
+[00] Exit
+
+>
 ```
 
-If part of your input isn't recognized:
+If any part of your input isn't recognized, the whole entry is rejected and you type again (nothing is half-accepted):
 
 ```
+> xyz
 Invalid Input: "xyz"
-[Enter] - Skip Invalid Input & Continue
-[N] - Re-enter
-[0] - Cancel & Return to Menu
+> 
 ```
 
-After picking, a summary is shown:
+Rotate then asks for direction and angle (`R90`, `L90`, `R180`, `L180`). After that you get the confirmation screen, which lists exactly what will be processed:
 
 ```
-Rotate summary (Pages: 1; Rotation: R90):
-  Report.pdf
-    a1 - page 1
+========================================================
 
-[Enter] - Proceed
-[N] - Re-enter
-[0] - Cancel & Return to Menu
+Confirm Inputs: 1
+   1. "Report.pdf"   Page 1 of 20
+
+Rotation: R90
+
+--------------------------------------------------------
+[Enter] Confirm
+[0] Back
+[00] Exit
+
+>
 ```
 
-`[0]` at any prompt cancels the tool and returns directly to the main menu.
+The keys mean the same on every screen:
+
+| Key | Meaning |
+|---|---|
+| `[Enter]` | the default action (confirm, select all, continue) |
+| `[#]` | pick items from the list |
+| `[0]` | back one screen - `[0] Back to menu` on a tool's first screen |
+| `[00]` | exit the program from any screen |
+
+Nothing asks "are you sure": nothing has been processed until the run starts, so backing out costs nothing. Because `0` and `00` are navigation keys, neither can be used as a password.
 
 ## Unreadable Files
 
 Tools 4, 7, 8, 9 need page or sheet counts, so unreadable files are listed once before the file list:
 
 ```
+========================================================
+
 Unreadable: 1
+
    1. "file1.pdf"   :   PdfStreamError - Stream has ended unexpectedly
 
-[Enter] - Skip & Continue
-[0] - Cancel & Return to Menu
+--------------------------------------------------------
+[Enter] Skip & continue
+[0] Back to menu
+[00] Exit
+
+>
 ```
 
 For the other tools an unreadable file shows up under `Failed` after processing.
@@ -152,6 +181,17 @@ For the other tools an unreadable file shows up under `Failed` after processing.
 ## Reading the Result
 
 ```
+========================================================
+
+Inputs: 2
+   1. "Report.pdf"   Page 1 of 20
+   2. "Invoice.pdf"   Pages 2-3 of 5
+
+Rotation: R90
+
+Processing
+Rotating ...
+
 Outputs: 2
    1. "Report Rotated.pdf"
    2. "Invoice Rotated.pdf"
@@ -163,19 +203,23 @@ Failed: 1
    1. "Broken.pdf"   :   ValueError - wrong password, could not decrypt
 
 Elapsed: 0.4s
+
+--------------------------------------------------------
+[Enter] Back to menu
+[0] Save error log & back to menu
+[00] Exit
+
+>
 ```
 
-- **Skipped** — nothing to do for that file; not a problem.
-- **Failed** — something went wrong; the reason follows the colon.
+- **Skipped** - nothing to do for that file; not a problem.
+- **Failed** - something went wrong; the reason follows the colon.
 
-## After a Tool Finishes
+`[0] Save error log & back to menu` only appears when something failed. It writes `error log_YYYYMMDD.txt` next to the exe with the step, error, context and traceback for every failure, then returns to the menu. The log starts with the input and output folder.
 
-```
-[Enter] - Continue to Menu
-[0] - Exit Session
-```
+Split PDF and Selective Extract add one line above `Inputs`, because their output goes to a different folder: `Output folder: "...\Split"`. The other tools print no folder line - input and output are the same folder as the exe.
 
-When something failed, the second line becomes `[0] - Save error log and Exit Session`. It writes `error log_YYYYMMDD.txt` next to the exe with the step, error, context and traceback for every failure.
+Every exit (`[00]` anywhere) ends on a final `[Enter] Close` screen, so a double-clicked window never vanishes unread.
 
 ## Requirements
 
@@ -188,7 +232,7 @@ When something failed, the second line becomes `[0] - Save error log and Exit Se
 |---|---|
 | Console closes immediately | Input files missing from folder — place files in the same folder as the script/exe |
 | Tool 1 or 7 fails | Microsoft Office not installed, or an Office process is stuck — close any lingering EXCEL.EXE / WINWORD.EXE |
-| File listed under "Failed" | Read the reason after the colon; save the error log with `[0]` |
+| File listed under "Failed" | Read the reason after the colon; save the error log with `[0]` on the result screen |
 | Wrong password on Unprotect | Check the filename for the `_pw_PASSWORD` hint |
 | File listed under "Skipped" | Nothing to do for that file; the reason is shown after the colon |
 | Antivirus blocks the `.exe` | Unsigned binary — whitelist it with your antivirus/IT if needed |
@@ -202,27 +246,30 @@ When something failed, the second line becomes `[0] - Save error log and Exit Se
 
 | Block | Contents |
 |---|---|
-| Constants | `VERSION`, `LINE_WIDTH`, `MAX_LISTED`, extensions, `PW_MARK`, `OUT_FOLDERS` |
-| Signals | `UserCancelled`, `NoInput`, `ExitSession`, `SkipItem` |
-| Paths / naming | `get_script_dir`, `get_unique_path`, `list_files`, `prefix_generator`, `dedupe` |
-| File index + selection | `Entry`, `Token`, `Index`, `scan_pdf_index`, `parse_tokens`, `prompt_selection`, `confirm`, `prompt_password`, `unit_summary_lines` |
-| Processing + report | `run_items`, `begin`, `finish`, `tail`, `write_error_log`, `make_failure` |
+| Constants | `VERSION`, `LINE_WIDTH`, `MAX_LISTED`, extensions, `PW_MARK`, `OUT_FOLDERS` (Split, Extract) |
+| Signals | `UserCancelled`, `NoInput`, `ExitSession`, `SkipItem`, `GoBack` |
+| Paths / naming | `get_script_dir`, `get_unique_path`, `out_dir`, `list_files`, `prefix_generator`, `dedupe` |
+| Screens | `open_screen`, `divider`, `ask`, `nav_keys`, `check_nav` - the one `=` / `-` / `>` screen grammar and fixed key vocabulary (script-conventions Console rules 10-11) |
+| File index + selection | `Entry`, `Token`, `Index`, `scan_pdf_index`, `parse_tokens`, `prompt_selection`, `select_step`, `run_inputs`, `confirm`, `prompt_password`, `unit_input_lines`, `ordered_groups` |
+| Processing + report | `run_items`, `announce`, `begin`, `finish`, `tail`, `write_error_log`, `make_failure` |
 | Office helpers | `OfficeApps`, `excel_export`, `word_export`, `scan_office_index` |
 | Tools | nine thin `tool_xxx()` functions |
-| Menu | `MENU`, `TOOLS`, `run_tool`, `main` |
+| Menu | `TOOLS`, `build_menu`, `choose_tool`, `run_tool`, `main` |
 
 Logic used by more than one tool lives in the shared blocks. A `tool_xxx()` holds only its own prompts and its worker.
 
 ### The same flow in every tool
 
 ```
-scan files once -> prompt_selection -> (tool prompt) -> confirm
-  -> announce folders -> begin("Gerund") -> run_items -> finish
+scan files once -> run_inputs([select, (tool step)] + confirm)
+  -> announce(folders + Inputs) -> begin("Gerund") -> run_items -> finish
 ```
 
 - Selection level is `"file"` (tools 1, 2, 3, 5, 6) or `"unit"` (4, 7, 8, 9). One parser, one set of prompts.
-- The scan happens **once**, before the selection loop; `[N]` re-enter never re-scans or re-shows `Unreadable`.
-- The `confirm()` summary doubles as the run report's `Inputs` block (on screen before processing, lists what will be processed).
+- Input screens are steps in `run_inputs()`: each step stores its answer in a shared dict, the confirm screen is always last. `[0]` is one screen back (on the first step it returns to the menu), `[00]` ends the session from anywhere; there is deliberately no extra "are you sure" prompt.
+- The scan happens **once**, before the steps; going back never re-scans or re-shows `Unreadable`.
+- The confirm screen and the run report's `Inputs` block print the same lines (`describe()` builds them once), so what you confirmed is what is reported.
+- Invalid input never half-accepts: the whole entry is rejected and re-asked on the same screen.
 - Workers return output names and never print. `run_items` is the only loop; it files exceptions into `Failed` / `Skipped`.
 - `begin()` is the statement directly before `run_items`, so the last line on screen always names the running stage.
 
@@ -230,20 +277,21 @@ scan files once -> prompt_selection -> (tool prompt) -> confirm
 
 | Exception | Raised when | Caught in |
 |---|---|---|
-| `UserCancelled` | `[0]` at any prompt | `run_tool()` → back to menu |
+| `GoBack` | `[0]` on an input screen after the first | `run_inputs()` → previous screen |
+| `UserCancelled` | `[0]` on a tool's first screen / `Unreadable` | `run_tool()` → back to menu |
 | `NoInput` | no files found for the tool | `run_tool()` → normal tail |
-| `ExitSession` | `[0]` at the tail | `main()` → close |
+| `ExitSession` | `[00]` on any screen (`check_nav`, `tail`) | `main()` → final `[Enter] Close` screen |
 | `SkipItem` | worker: nothing to do for the item | `run_items()` |
 
 This replaces the v1.x `"CANCELLED"` string return, which every caller had to remember to check. New mid-tool exit point: `raise UserCancelled()`, never `return`. An unexpected exception inside a tool is caught in `run_tool()`, shown as `FAILED`, and goes to the normal tail so the log can be saved.
 
 ### Error log
 
-Written only when `[0]` is pressed at the tail. `make_failure()` calls `traceback.format_exc()` **inside** the `except` block — outside it the traceback is gone. Fields per entry: Step, Error, Context, Traceback. Filename `error log_YYYYMMDD.txt`, same-day re-runs get `_1`, `_2`.
+Written only when `[0] Save error log & back to menu` is pressed at the tail. The header carries the resolved `Input folder:` and `Output folder:`. `make_failure()` calls `traceback.format_exc()` **inside** the `except` block — outside it the traceback is gone. Fields per entry: Step, Error, Context, Traceback. Filename `error log_YYYYMMDD.txt`, same-day re-runs get `_1`, `_2`.
 
 ### Output naming
 
-All outputs are deliverables: no run date, words separated by spaces, underscore only for the collision counter. One deliberate exception: Protect PDF keeps `name_pw_PASSWORD.pdf` so the password hint travels with the file; Unprotect strips it. The `_unprotected` suffix and its skip check were removed — Unprotect skips by `reader.is_encrypted`.
+Outputs go next to the inputs (`out_dir()`); only Split and Selective Extract get a subfolder. Folder lines print on the run report only when the output folder differs from the script folder. All outputs are deliverables: no run date, words separated by spaces, underscore only for the collision counter. One deliberate exception: Protect PDF keeps `name_pw_PASSWORD.pdf` so the password hint travels with the file; Unprotect strips it. The `_unprotected` suffix and its skip check were removed — Unprotect skips by `reader.is_encrypted`.
 
 ### Tool notes
 
@@ -267,7 +315,7 @@ script_dir = os.path.dirname(os.path.abspath(
 
 ### Versioning
 
-Format: `v{major}.{minor}_{YYYYMMDD}`. Current: `v2.0_20261108`. Update the `VERSION` constant in `PDF Tools.py`, `version_info.txt`, and this file.
+Format: `v{major}.{minor}_{YYYYMMDD}`. Current: `v2.1_20261111`. Update the `VERSION` constant in `PDF Tools.py`, `version_info.txt`, and this file.
 
 ### Packaging
 
@@ -305,7 +353,7 @@ Python 3.8+. Microsoft Excel and Word required on the machine running the script
 - The password prompt is visible by design.
 
 ---
-**Version:** v2.0_20261108
+**Version:** v2.1_20261111
 
 **Author:** Yeoh Huey Sun
 **Email:** greyw901@gmail.com

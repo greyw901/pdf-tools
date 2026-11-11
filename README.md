@@ -17,12 +17,12 @@ Every tool follows the same four steps:
 
 1. Pick a tool from the menu
 2. Pick the files (or pages) — by number for whole files, by code like `a1-a20` for pages and sheets
-3. Check the summary and press `[Enter]` to proceed
+3. Check the summary and press `[Enter]` to confirm
 4. Read the result: `Outputs`, `Skipped`, `Failed` (with the reason)
 
 ```
   +-------------------------------+-------------------------------+
-  |   PDF Tools v2.0_20261108     |                               |
+  |   PDF Tools v2.1_20261111     |                               |
   +-------------------------------+-------------------------------+
   | BASIC                         | ADVANCE                       |
   +-------------------------------+-------------------------------+
@@ -33,11 +33,24 @@ Every tool follows the same four steps:
   | [5] - Protect PDF             |                               |
   | [6] - Unprotect PDF           |                               |
   +-------------------------------+-------------------------------+
-  | [0] - Exit                                                    |
+  | [00] - Exit                                                   |
   +---------------------------------------------------------------+
+
+  --------------------------------------------------------
+  [#] Select
+  [00] Exit
+
+  >
 ```
 
-Anything in `[ ]` is a key you press. `[0]` always cancels and takes you back.
+Anything in `[ ]` is a key you press, and the keys mean the same on every screen:
+
+| Key | Meaning |
+|---|---|
+| `[Enter]` | the default action (confirm, select all, continue) |
+| `[#]` | pick items from the list |
+| `[0]` | back one screen (`Back to menu` on a tool's first screen) |
+| `[00]` | exit the program from any screen |
 
 ## Tools
 
@@ -92,15 +105,22 @@ Windows may show a SmartScreen warning on first run — click "More info" then "
 
 ## Output
 
-Every tool writes to its own subfolder next to the script (`Merged\`, `Split\`, `Rotated\`, etc.). Original input files are never modified or deleted. If an output name already exists, `_1`, `_2` ... is added instead of overwriting.
+Every tool writes its result next to the input files, in the same folder as the script/exe. The exceptions are Split PDF (`Split\`) and Selective Extract (`Extract\`), which can produce many files. Because results stay in the same folder, they appear in the file list on the next run — you always pick what to process, and the summary shows exactly what was picked. Original input files are never modified or deleted. If an output name already exists, `_1`, `_2` ... is added instead of overwriting.
 
 ## When something fails
 
-A failed file never stops the others. It is listed under `Failed:` with the reason, and choosing `[0] - Save error log and Exit Session` at the end writes `error log_YYYYMMDD.txt` next to the tool — step, error, file path and full traceback, so the problem can be diagnosed without re-describing it.
+A failed file never stops the others. It is listed under `Failed:` with the reason, and choosing `[0] Save error log & back to menu` on the result screen writes `error log_YYYYMMDD.txt` next to the tool — step, error, file path and full traceback, so the problem can be diagnosed without re-describing it.
 
 ## Note on Protect PDF
 
 The password you set is included in the output filename (e.g. `Report_pw_ABCd123.pdf`) so you can see it at a glance. Strip it from the filename before sending the file to anyone else. Unprotect PDF removes the `_pw_...` part again when it writes the unlocked copy.
+
+## What's new in v2.1
+
+- Every screen follows one layout: `=` line, question, choices, `-` line, keys, then the `>` prompt.
+- One key vocabulary everywhere: `[Enter]` default, `[#]` pick, `[0]` back, `[00]` exit.
+- Results are written next to the input files (Split and Extract keep their own folder).
+- Saving the error log now returns to the menu instead of closing the program.
 
 ## What's new in v2.0
 
