@@ -17,40 +17,40 @@ Every tool follows the same four steps:
 
 1. Pick a tool from the menu
 2. Pick the files (or pages) — by number for whole files, by code like `a1-a20` for pages and sheets
-3. Check the summary and press `[Enter]` to confirm
+3. Check the summary and press `[Enter]` to continue
 4. Read the result: `Outputs`, `Skipped`, `Failed` (with the reason)
 
 ```
-  +-------------------------------+-------------------------------+
-  |   PDF Tools v2.1_20261111     |                               |
-  +-------------------------------+-------------------------------+
-  | BASIC                         | ADVANCE                       |
-  +-------------------------------+-------------------------------+
-  | [1] Convert to PDF            | [7] Convert to PDF Precise    |
-  | [2] Merge PDF                 | [8] Selective Combine         |
-  | [3] Split PDF                 | [9] Selective Extract         |
-  | [4] Rotate PDF                |                               |
-  | [5] Protect PDF               |                               |
-  | [6] Unprotect PDF             |                               |
-  +-------------------------------+-------------------------------+
-  | [00] Exit                                                     |
-  +---------------------------------------------------------------+
+========================================================
+PDF Tools
+========================================================
 
-  --------------------------------------------------------
-  [#] Select
-  [00] Exit
++-------------------------------+-------------------------------+
+| BASIC                         | ADVANCE                       |
++-------------------------------+-------------------------------+
+| [1] Convert to PDF            | [7] Convert to PDF Precise    |
+| [2] Merge PDF                 | [8] Selective Combine         |
+| [3] Split PDF                 | [9] Selective Extract         |
+| [4] Rotate PDF                |                               |
+| [5] Protect PDF               |                               |
+| [6] Unprotect PDF             |                               |
++-------------------------------+-------------------------------+
 
-  >
+--------------------------------------------------------
+[#] Select
+[0] Exit
+
+Ans:
 ```
 
 Anything in `[ ]` is a key you press, and the keys mean the same on every screen:
 
 | Key | Meaning |
 |---|---|
-| `[Enter]` | the default action (confirm, select all, continue) |
+| `[Enter]` | the default action (select all, continue, back to menu) |
 | `[#]` | pick items from the list |
-| `[0]` | back one screen (`Back to menu` on a tool's first screen) |
-| `[00]` | exit the program from any screen |
+| `[0]` | back one screen — `Back to menu` on a tool's first screen, `Exit` on the menu |
+| `[00]` | cancel and close the program, from any tool screen |
 
 ## Tools
 
@@ -115,6 +115,15 @@ A failed file never stops the others. It is listed under `Failed:` with the reas
 
 The password you set is included in the output filename (e.g. `Report_pw_ABCd123.pdf`) so you can see it at a glance. Strip it from the filename before sending the file to anyone else. Unprotect PDF removes the `_pw_...` part again when it writes the unlocked copy.
 
+## What's new in v2.2
+
+- Every screen is cleared and redrawn with the tool name on top and what you have picked so far; the prompt names what you are typing (`Pages:`, `Ans:`).
+- A wrong entry redraws the same screen with `Error: Invalid Input` and the reason.
+- The result screen offers `[0] Exit` when nothing failed, so you can close straight from there.
+- Merge and Rotate outputs are now `Report_merged.pdf` / `Report_rotated.pdf`.
+- Tools 1 and 7 no longer hang when Excel/Word silently waits on a prompt (e.g. Word's "caused a serious error last time"): the file is listed under `Failed` with Word's own message, and the tool carries on. Your own open Excel/Word windows are never touched.
+- Version info is embedded in the exe (Properties > Details).
+
 ## What's new in v2.1
 
 - Every screen follows one layout: `=` line, question, choices, `-` line, keys, then the `>` prompt.
@@ -133,6 +142,8 @@ The password you set is included in the output filename (e.g. `Report_pw_ABCd123
 - Output names use spaces instead of underscores (`Report Merged.pdf`, `Report p3.pdf`).
 
 ---
+
+**Version:** v2.2_20261113
 
 **Author:** Yeoh Huey Sun <br>
 **Email:** greyw901@gmail.com <br>

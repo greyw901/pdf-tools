@@ -22,8 +22,10 @@ import logging
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
+import threading
 import time
 import traceback
 import warnings
@@ -34,7 +36,8 @@ from typing import Callable, Optional
 # ══════════════════════════════════════════════════════════
 #  CONSTANTS
 # ══════════════════════════════════════════════════════════
-VERSION       = "v2.1_20261111"
+SUITE_NAME    = "PDF Tools"
+VERSION       = "v2.2_20261113"          # not shown on screen; goes into the exe version file
 LINE_WIDTH    = 56                       # banner / divider width
 MAX_LISTED    = 20                       # longest numbered list printed before "... and n more"
 EXCEL_EXTS    = {".xls", ".xlsx", ".xlsm", ".xlsb"}
@@ -43,6 +46,8 @@ PW_MARK       = "_pw_"                   # Protect PDF writes the password into 
 BAD_NAME_CHARS = '\\/:*?"<>|'            # cannot appear in a Windows filename (password goes in the name)
 SELECT_SPLIT  = re.compile(r"[\s,]+")
 OUT_FOLDERS   = {"split": "Split", "extract": "Extract"}   # only tools listed here get an output subfolder
+OFFICE_TIMEOUT = 300                     # s; one Excel/Word open+export with no response -> force-closed
+NO_WINDOW     = 0x08000000               # CREATE_NO_WINDOW: helper commands don't flash a console
 
 
 logging.getLogger("pypdf").setLevel(logging.ERROR)
@@ -50,18 +55,30 @@ warnings.filterwarnings("ignore")
 
 
 # ══════════════════════════════════════════════════════════
-#  SIGNALS (exceptions) - single catch site: run_tool() / main()
+#  SIGNALS (exceptions) - each has one catch site, named below
 # ══════════════════════════════════════════════════════════
 class UserCancelled(Exception):
-    """User pressed [0] at a prompt: abandon the tool, back to the menu (no tail)."""
+    """[0] on a tool's first screen: abandon the tool, back to the menu (no tail).
+    Catch site: run_tool()."""
 
 
 class NoInput(Exception):
-    """Nothing to process (no files found). Message is printed, then the normal tail."""
+    """Nothing to process (no files found). Message is printed, then the normal tail.
+    Catch site: run_tool()."""
 
 
 class ExitSession(Exception):
-    """[00] on any screen: end the session. Caught in main()."""
+    """[00] on a tool screen: Cancelled. screen, then the program closes. Catch site: main()."""
+
+
+class ExitProgram(Exception):
+    """[0] Exit on the Tool finished screen (no failures): close immediately, no screen.
+    Catch site: main()."""
+
+
+class InvalidInput(Exception):
+    """Raised by a screen's input handler; message = reason ("" for a bare notice).
+    Catch site: prompt_screen(), which redraws the same screen with the notice."""
 
 
 class SkipItem(Exception):
@@ -197,14 +214,29 @@ def failure_lines(pairs: list) -> list:
 
 
 # Screen grammar (script-conventions, Console rules 10-11), the same on every screen:
-#   ====  / blank / heading + body / blank / ---- / [key] Label lines / blank / "> "
-def open_screen() -> None:
-    """Top of a new screen: the = line, then a blank line."""
+#   clear / banner / choices so far / notice / heading + body / ---- / [key] Label lines / blank / prompt
+def clear_screen() -> None:
+    os.system("cls")
+
+
+def open_screen(title: str, choices: Optional[list] = None, notice: Optional[str] = None) -> None:
+    """New screen: clear, banner, the choices made so far, then the notice left by the
+    previous input (Error: Invalid Input ... / Saved: ...)."""
+    clear_screen()
+    print("=" * LINE_WIDTH)
+    print(title)
     print("=" * LINE_WIDTH)
     print()
+    if choices:
+        for line in choices:
+            print(line)
+        print()
+    if notice:
+        print(notice)
+        print()
 
 
-def divider(keys: list) -> None:
+def options(keys: list) -> None:
     """Blank, - line, key legend, blank: the input line never sits flush under the options."""
     print()
     print("-" * LINE_WIDTH)
@@ -213,19 +245,26 @@ def divider(keys: list) -> None:
     print()
 
 
-def ask(valid: set, keys: list) -> str:
-    """Legend once, then read until the answer is in `valid` (lower-cased). Never raises."""
-    divider(keys)
+def prompt_screen(title: str, body: Callable, keys: list, prompt: str, handle: Callable,
+                  choices: Optional[list] = None, notice: Optional[str] = None,
+                  strip: bool = True):
+    """Draw the screen, read one answer, return handle(answer). handle raises InvalidInput
+    to have the same screen redrawn with the notice."""
     while True:
-        raw = input("> ").strip().lower()
-        if raw in valid:
-            return raw
-        print(f'Invalid Input: "{raw}"')
+        open_screen(title, choices, notice)
+        body()
+        options(keys)
+        raw = input(prompt)
+        try:
+            return handle(raw.strip() if strip else raw)
+        except InvalidInput as e:
+            notice = f"Error: Invalid Input - {e}" if str(e) else "Error: Invalid Input"
 
 
 def nav_keys(first: bool) -> list:
-    """Fixed vocabulary: [0] back one level (to the menu on a tool's first screen), [00] exit."""
-    return ["[0] Back to menu" if first else "[0] Back", "[00] Exit"]
+    """Fixed vocabulary: [0] back one level (to the menu on a tool's first screen),
+    [00] cancel & exit."""
+    return ["[0] Back to menu" if first else "[0] Back", "[00] Cancel & exit"]
 
 
 def check_nav(raw: str, first: bool) -> None:
@@ -238,28 +277,31 @@ def check_nav(raw: str, first: bool) -> None:
         raise GoBack()
 
 
-def show_unreadable(unreadable: list) -> None:
-    open_screen()
-    print(f"Unreadable: {len(unreadable)}")
-    print()
-    for line in failure_lines(unreadable):
-        print(line)
-    choice = ask({"", "0", "00"}, ["[Enter] Skip & continue", "[0] Back to menu", "[00] Exit"])
-    if choice:
-        check_nav(choice, True)
+def show_unreadable(title: str, unreadable: list) -> None:
+    def body() -> None:
+        print(f"Unreadable: {len(unreadable)}")
+        for line in failure_lines(unreadable):
+            print(line)
+
+    def handle(raw: str) -> None:
+        if raw:
+            check_nav(raw, True)
+            raise InvalidInput("")
+
+    prompt_screen(title, body, ["[Enter] Skip & continue"] + nav_keys(True), "Ans: ", handle)
 
 
-def finalize_index(entries: list, unreadable: list, noun: str) -> Index:
+def finalize_index(entries: list, unreadable: list, noun: str, title: str) -> Index:
     if not entries and not unreadable:
         raise NoInput(f"No {noun} files found.")
     if unreadable:
-        show_unreadable(unreadable)
+        show_unreadable(title, unreadable)
     if not entries:
         raise NoInput(f"No readable {noun} files found.")
     return Index(entries)
 
 
-def scan_pdf_index(script_dir: str, count_pages: bool) -> Index:
+def scan_pdf_index(script_dir: str, count_pages: bool, title: str) -> Index:
     """Index the PDFs in the folder once. count_pages=False lists names only (file-level tools)."""
     from pypdf import PdfReader
     gen = prefix_generator() if count_pages else number_generator()
@@ -280,7 +322,7 @@ def scan_pdf_index(script_dir: str, count_pages: bool) -> Index:
             unreadable.append((name, f"{type(e).__name__} - {e}"))
             continue
         entries.append(Entry(next(gen), path, name, "pdf", n, "Pages", "page"))
-    return finalize_index(entries, unreadable, "PDF")
+    return finalize_index(entries, unreadable, "PDF", title)
 
 
 def parse_tokens(raw: str, index: Index, level: str) -> tuple:
@@ -316,18 +358,18 @@ def parse_tokens(raw: str, index: Index, level: str) -> tuple:
     return tokens, invalid
 
 
-def prompt_selection(index: Index, level: str, heading: str, example: str, first: bool = True) -> list:
-    """Selection screen. Returns tokens. Invalid input is re-asked, never half-accepted."""
-    open_screen()
-    print(heading)
-    print()
-    print(f"Eg.: {example}")
-    print()
-    for line in index.display_lines(level):
-        print(line)
-    divider(["[Enter] Select all", "[#] Select"] + nav_keys(first))
-    while True:
-        raw = input("> ").strip()
+def prompt_selection(title: str, index: Index, level: str, heading: str, example: str,
+                     noun: str, first: bool, choices: list) -> list:
+    """Selection screen. Returns tokens. Invalid input redraws the screen, never half-accepted."""
+    def body() -> None:
+        print(heading)
+        print()
+        print(f"e.g. {example}")
+        print()
+        for line in index.display_lines(level):
+            print(line)
+
+    def handle(raw: str) -> list:
         check_nav(raw, first)
         if not raw:
             return [Token(e.prefix, prefix=e.prefix,
@@ -335,9 +377,11 @@ def prompt_selection(index: Index, level: str, heading: str, example: str, first
                     for e in index.entries]
         tokens, invalid = parse_tokens(raw, index, level)
         if invalid or not tokens:
-            print("Invalid Input: " + ", ".join(f'"{t}"' for t in (invalid or [raw])))
-            continue
+            raise InvalidInput("not valid: " + ", ".join(f'"{t}"' for t in (invalid or [raw])))
         return tokens
+
+    return prompt_screen(title, body, ["[Enter] Select all", "[#] Select"] + nav_keys(first),
+                         f"{noun}: ", handle, choices)
 
 
 def files_of(tokens: list, index: Index) -> list:
@@ -398,60 +442,75 @@ def ordered_groups(codes: list, index: Index) -> list:
     return groups
 
 
-def confirm(inputs: list, extra: Optional[list] = None) -> None:
+def inputs_block(lines: list) -> list:
+    return [f"Inputs: {len(lines)}"] + numbered(lines)
+
+
+def confirm(title: str, inputs: list, extra: Optional[list] = None) -> None:
     """Confirm screen: Inputs block (+ extra lines) then [Enter] / [0] / [00]."""
-    open_screen()
-    print(f"Confirm Inputs: {len(inputs)}")
-    for line in numbered(inputs):
-        print(line)
-    for line in extra or []:
-        print(line)
-    choice = ask({"", "0", "00"}, ["[Enter] Confirm"] + nav_keys(False))
-    if choice:
-        check_nav(choice, False)
+    def body() -> None:
+        print(f"Confirm Inputs: {len(inputs)}")
+        for line in numbered(inputs):
+            print(line)
+        for line in extra or []:
+            print(line)
+
+    def handle(raw: str) -> None:
+        if raw:
+            check_nav(raw, False)
+            raise InvalidInput("")
+
+    prompt_screen(title, body, ["[Enter] Continue"] + nav_keys(False), "Ans: ", handle)
 
 
-def prompt_password(heading: str, forbid_name_chars: bool) -> str:
+def prompt_password(title: str, heading: str, forbid_name_chars: bool, choices: list) -> str:
     """Visible password screen. "0" and "00" are navigation keys, so neither can be a password."""
-    open_screen()
-    print(heading)
-    divider(nav_keys(False))
-    while True:
-        pw = input("> ")
+    def handle(pw: str) -> str:
         check_nav(pw, False)
         if not pw:
-            print('Invalid Input: ""')
-        elif forbid_name_chars and any(c in BAD_NAME_CHARS for c in pw):
-            print(f'Invalid Input: "{pw}"   :   password goes into the filename, cannot contain {BAD_NAME_CHARS}')
-        else:
-            return pw
+            raise InvalidInput("")
+        if forbid_name_chars and any(c in BAD_NAME_CHARS for c in pw):
+            raise InvalidInput(f"password goes into the filename, cannot contain {BAD_NAME_CHARS}")
+        return pw
+
+    return prompt_screen(title, lambda: print(heading), nav_keys(False), "Password: ", handle,
+                         choices, strip=False)
 
 
-def select_step(index: Index, level: str, heading: str, example: str) -> Callable:
-    """Input step: pick files / pages. Stores the tokens in state['tokens']."""
-    def step(state: dict) -> None:
-        state["tokens"] = prompt_selection(index, level, heading, example, state["first"])
-    return step
+def select_step(title: str, index: Index, level: str, heading: str, example: str,
+                noun: str, lines_of: Callable) -> tuple:
+    """Input step: pick files / pages into state['tokens']. lines_of(tokens) -> the Inputs
+    lines this choice shows on later screens."""
+    def step(state: dict, first: bool, choices: list) -> None:
+        state["tokens"] = prompt_selection(title, index, level, heading, example, noun, first, choices)
+
+    def shown(state: dict) -> list:
+        return inputs_block(lines_of(state["tokens"]))
+
+    return step, shown
 
 
-def run_inputs(steps: list, describe: Callable) -> dict:
-    """Input screens in order, then the confirm screen. describe(state) -> (inputs, extra).
-    [0] is one screen back (on the first screen it cancels), [00] cancels from anywhere.
-    Single catch site of GoBack."""
-    def confirm_step(state: dict) -> None:
-        inputs, extra = describe(state)
-        confirm(inputs, extra)
-
-    steps = steps + [confirm_step]
+def run_inputs(title: str, steps: list, describe: Callable) -> dict:
+    """steps: [(screen(state, first, choices), shown(state) -> lines)], then the confirm
+    screen; describe(state) -> (inputs, extra). Each screen shows the choices of the steps
+    before it; the confirm screen shows none - everything chosen is its body.
+    [0] is one screen back (on the first screen: to the menu). Single catch site of GoBack."""
     state, i = {}, 0
-    while i < len(steps):
-        state["first"] = i == 0
+    while True:
         try:
-            steps[i](state)
+            if i == len(steps):
+                inputs, extra = describe(state)
+                confirm(title, inputs, extra)
+                return state
+            choices = []
+            for _, shown in steps[:i]:
+                if choices:
+                    choices.append("")
+                choices.extend(shown(state))
+            steps[i][0](state, i == 0, choices)
             i += 1
         except GoBack:
-            i = max(i - 1, 0)
-    return state
+            i -= 1
 
 
 # ══════════════════════════════════════════════════════════
@@ -491,23 +550,38 @@ def run_items(items: list, step: str, worker: Callable, name_of: Callable,
     return outputs, skipped, failures
 
 
-def announce(script_dir: str, out_folder: str, inputs: list) -> None:
+class Transcript:
+    """Run-report lines: printed live, and kept so the Tool finished screen can be
+    redrawn after invalid input without losing the report."""
+
+    def __init__(self) -> None:
+        self.lines = []
+
+    def say(self, text: str = "") -> None:
+        print(text, flush=True)
+        self.lines.append(text)
+
+
+def announce(title: str, script_dir: str, out_folder: str, inputs: list) -> Transcript:
     """Run-report head. A folder line prints only when it carries information (the output is
     not in the script folder); then the Inputs block - printed before any work starts."""
     os.makedirs(out_folder, exist_ok=True)
-    open_screen()
+    open_screen(title)
+    tr = Transcript()
     if out_folder != script_dir:
-        print(f'Output folder: "{out_folder}"')
-        print()
-    print(f"Inputs: {len(inputs)}")
+        tr.say(f'Output folder: "{out_folder}"')
+        tr.say()
+    tr.say(f"Inputs: {len(inputs)}")
     for line in numbered(inputs):
-        print(line)
+        tr.say(line)
+    return tr
 
 
-def begin(stage: str) -> float:
+def begin(tr: Transcript, stage: str) -> float:
     """Stage line - call it as the statement right before the work it names."""
-    print("\nProcessing")
-    print(f"{stage} ...")
+    tr.say()
+    tr.say("Processing")
+    tr.say(f"{stage} ...")
     return time.time()
 
 
@@ -530,35 +604,49 @@ def write_error_log(tool_name: str, failures: list, folder: str, out_folder: str
     return os.path.basename(path)
 
 
-def tail(tool_name: str, script_dir: str, out_folder: str, failures: list) -> None:
-    """Tool finished (suite): [Enter] back to menu, [0] save log (failures only), [00] exit."""
-    keys, valid = ["[Enter] Back to menu"], {"", "00"}
-    if failures:
-        keys.append("[0] Save error log & back to menu")
-        valid.add("0")
-    keys.append("[00] Exit")
-    choice = ask(valid, keys)
-    if choice == "00":
-        raise ExitSession()
-    if choice == "0":
-        print(f'Saved: "{write_error_log(tool_name, failures, script_dir, out_folder)}"')
+def tail(title: str, script_dir: str, out_folder: str, failures: list,
+         tr: Transcript) -> Optional[str]:
+    """Tool finished (suite): [Enter] back to menu; [0] save log & back to menu when there
+    are failures, otherwise [0] Exit (raises ExitProgram). Returns the notice for the menu
+    screen (Saved: ...) or None."""
+    keys = ["[Enter] Back to menu"]
+    keys.append("[0] Save error log & back to menu" if failures else "[0] Exit")
+
+    def body() -> None:
+        for line in tr.lines:
+            print(line)
+
+    def handle(raw: str) -> Optional[str]:
+        if raw == "":
+            return None
+        if raw == "0" and failures:
+            return f'Saved: "{write_error_log(title, failures, script_dir, out_folder)}"'
+        if raw == "0":
+            raise ExitProgram()
+        raise InvalidInput("")
+
+    return prompt_screen(title, body, keys, "Ans: ", handle)
 
 
-def finish(tool_name: str, script_dir: str, out_folder: str, t0: float, outputs: list,
-           skipped: list, failures: list) -> None:
-    print(f"\nOutputs: {len(outputs)}")
+def finish(title: str, script_dir: str, out_folder: str, t0: float, outputs: list,
+           skipped: list, failures: list, tr: Transcript) -> Optional[str]:
+    tr.say()
+    tr.say(f"Outputs: {len(outputs)}")
     for line in numbered([f'"{o}"' for o in outputs]):
-        print(line)
+        tr.say(line)
     if skipped:
-        print(f"\nSkipped: {len(skipped)}")
+        tr.say()
+        tr.say(f"Skipped: {len(skipped)}")
         for line in failure_lines(skipped):
-            print(line)
+            tr.say(line)
     if failures:
-        print(f"\nFailed: {len(failures)}")
+        tr.say()
+        tr.say(f"Failed: {len(failures)}")
         for line in failure_lines([(r["item"], r["error"]) for r in failures]):
-            print(line)
-    print(f"\nElapsed: {time.time() - t0:.1f}s")
-    tail(tool_name, script_dir, out_folder, failures)
+            tr.say(line)
+    tr.say()
+    tr.say(f"Elapsed: {time.time() - t0:.1f}s")
+    return tail(title, script_dir, out_folder, failures, tr)
 
 
 def write_pdf(writer, path: str) -> None:
@@ -569,20 +657,123 @@ def write_pdf(writer, path: str) -> None:
 # ══════════════════════════════════════════════════════════
 #  SHARED: Office (COM) helpers - used by Convert to PDF / Precise
 # ══════════════════════════════════════════════════════════
+class OfficePrompt(Exception):
+    """Our hidden Excel/Word showed a prompt (or stopped responding) and was force-closed.
+    Raised by OfficeApps.run(); lands under Failed / Unreadable like any per-item error."""
+
+
+def _office_pids(exe: str) -> set:
+    out = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {exe}", "/FO", "CSV", "/NH"],
+                         capture_output=True, text=True, creationflags=NO_WINDOW).stdout
+    pids = set()
+    for line in out.splitlines():
+        parts = line.strip().strip('"').split('","')
+        if len(parts) > 1 and parts[1].isdigit():
+            pids.add(int(parts[1]))
+    return pids
+
+
+def _visible_windows(pid: int) -> list:
+    """Visible, titled top-level windows of pid. Our app runs with Visible=False, so any
+    such window is a prompt waiting for a click (DisplayAlerts does not cover all of them,
+    e.g. Word's "it caused a serious error last time")."""
+    import win32gui
+    import win32process
+    found = []
+
+    def cb(h, _) -> None:
+        if win32gui.IsWindowVisible(h) and win32gui.GetWindowText(h):
+            if win32process.GetWindowThreadProcessId(h)[1] == pid:
+                found.append(win32gui.GetWindowText(h))
+    win32gui.EnumWindows(cb, None)
+    return found
+
+
+# Office draws prompt text itself (no Win32 text); UI Automation via PowerShell can read it.
+_PS_PROMPT_TEXT = (
+    "Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes;"
+    "$A=[System.Windows.Automation.AutomationElement];"
+    "$c=New-Object System.Windows.Automation.PropertyCondition($A::ProcessIdProperty,{pid});"
+    "$t=New-Object System.Windows.Automation.PropertyCondition($A::ControlTypeProperty,"
+    "[System.Windows.Automation.ControlType]::Text);"
+    "foreach($w in $A::RootElement.FindAll('Children',$c)){{"
+    "foreach($e in $w.FindAll('Descendants',$t)){{$e.Current.Name}}}}"
+)
+
+
+def _prompt_text(pid: int, fallback: str) -> str:
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-Command", _PS_PROMPT_TEXT.format(pid=pid)],
+                           capture_output=True, text=True, timeout=20, creationflags=NO_WINDOW)
+        text = " ".join(line.strip() for line in r.stdout.splitlines() if line.strip())
+        return text or fallback
+    except Exception:
+        return fallback
+
+
 class OfficeApps:
-    """Starts Excel / Word on first use, quits them in close(). One COM instance per app."""
+    """Starts Excel / Word on first use, quits them in close(). One COM instance per app.
+    Every COM job goes through run(), which a watchdog guards: a prompt or a hang
+    force-closes OUR instance (never the user's) and raises OfficePrompt."""
+
+    EXE = {"excel": "EXCEL.EXE", "word": "WINWORD.EXE"}
 
     def __init__(self) -> None:
         self._apps = {}
+        self._pids = {}
 
     def get(self, kind: str):
         if kind not in self._apps:
             import win32com.client
-            app = win32com.client.Dispatch("Excel.Application" if kind == "excel" else "Word.Application")
+            before = _office_pids(self.EXE[kind])
+            # DispatchEx: always a fresh instance - Dispatch can attach to the user's open
+            # Excel/Word, which close() would then Quit (DisplayAlerts off = unsaved work lost).
+            app = win32com.client.DispatchEx("Excel.Application" if kind == "excel" else "Word.Application")
             app.Visible = False
             app.DisplayAlerts = False
+            new = _office_pids(self.EXE[kind]) - before
+            self._pids[kind] = next(iter(new)) if len(new) == 1 else None   # None: unguarded
             self._apps[kind] = app
         return self._apps[kind]
+
+    def run(self, kind: str, job: Callable):
+        """job(app) under the watchdog. On a prompt / hang: kill our instance, raise OfficePrompt;
+        the next run() starts a fresh instance."""
+        app = self.get(kind)
+        pid = self._pids[kind]
+        done, hit = threading.Event(), {}
+        name = "Word" if kind == "word" else "Excel"
+
+        def watch() -> None:
+            start = time.time()
+            while not done.wait(1):
+                windows = _visible_windows(pid)
+                if windows:
+                    hit["why"] = f"{name} showed a prompt: '{_prompt_text(pid, windows[0])}'"
+                elif time.time() - start > OFFICE_TIMEOUT:
+                    hit["why"] = f"{name} did not respond for {OFFICE_TIMEOUT}s"
+                else:
+                    continue
+                subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True,
+                               creationflags=NO_WINDOW)
+                return
+
+        watcher = threading.Thread(target=watch, daemon=True) if pid else None
+        if watcher:
+            watcher.start()
+        try:
+            return job(app)
+        except Exception:
+            if hit:
+                raise OfficePrompt(hit["why"] + f" - {name} was closed") from None
+            raise
+        finally:
+            done.set()
+            if watcher:
+                watcher.join()
+            if hit:
+                self._apps.pop(kind, None)
+                self._pids.pop(kind, None)
 
     def close(self) -> None:
         for app in self._apps.values():
@@ -591,6 +782,7 @@ class OfficeApps:
             except Exception:
                 pass
         self._apps = {}
+        self._pids = {}
 
 
 def excel_export(app, src: str, out_path: str, keep_sheets: Optional[list]) -> None:
@@ -633,7 +825,23 @@ def word_export(app, src: str, out_path: str, keep_pages: Optional[list]) -> Non
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def scan_office_index(script_dir: str, with_units: bool) -> Index:
+def excel_visible_sheets(app, path: str) -> list:
+    wb = app.Workbooks.Open(path, ReadOnly=True, UpdateLinks=False)
+    try:
+        return [s.Name for s in wb.Sheets if s.Visible == -1]
+    finally:
+        wb.Close(SaveChanges=False)
+
+
+def word_page_count(app, path: str) -> int:
+    doc = app.Documents.Open(path, ReadOnly=True, AddToRecentFiles=False)
+    try:
+        return int(doc.ComputeStatistics(2))                    # wdStatisticPages
+    finally:
+        doc.Close(SaveChanges=False)
+
+
+def scan_office_index(script_dir: str, with_units: bool, title: str) -> Index:
     """with_units=False: names only (Convert). True: opens each file for sheet / page counts (Precise)."""
     gen = prefix_generator() if with_units else number_generator()
     entries, unreadable = [], []
@@ -647,71 +855,65 @@ def scan_office_index(script_dir: str, with_units: bool) -> Index:
                 continue
             try:
                 if kind == "excel":
-                    wb = apps.get("excel").Workbooks.Open(path, ReadOnly=True, UpdateLinks=False)
-                    try:
-                        visible = [s.Name for s in wb.Sheets if s.Visible == -1]
-                    finally:
-                        wb.Close(SaveChanges=False)
+                    visible = apps.run("excel", lambda app: excel_visible_sheets(app, path))
                     if not visible:
                         raise ValueError("no visible sheets")
                     entries.append(Entry(next(gen), path, name, kind, len(visible),
                                          "Sheets", "sheet", visible))
                 else:
-                    doc = apps.get("word").Documents.Open(path, ReadOnly=True, AddToRecentFiles=False)
-                    try:
-                        pages = int(doc.ComputeStatistics(2))          # wdStatisticPages
-                    finally:
-                        doc.Close(SaveChanges=False)
+                    pages = apps.run("word", lambda app: word_page_count(app, path))
                     entries.append(Entry(next(gen), path, name, kind, pages, "Pages", "page"))
             except Exception as e:
                 unreadable.append((name, f"{type(e).__name__} - {e}"))
     finally:
         apps.close()
-    return finalize_index(entries, unreadable, "Excel or Word")
+    return finalize_index(entries, unreadable, "Excel or Word", title)
 
 
 # ══════════════════════════════════════════════════════════
 #  TOOL 1 - Convert to PDF   (file-level)
 # ══════════════════════════════════════════════════════════
-def tool_convert_to_pdf(script_dir: str) -> None:
-    index = scan_office_index(script_dir, with_units=False)
-    state = run_inputs([select_step(index, "file", "Select files to convert", "1, 3, 4-6")],
-                       lambda st: (file_input_lines(files_of(st["tokens"], index)), []))
+def tool_convert_to_pdf(script_dir: str, title: str) -> Optional[str]:
+    index = scan_office_index(script_dir, False, title)
+    lines_of = lambda toks: file_input_lines(files_of(toks, index))
+    state = run_inputs(title, [select_step(title, index, "file", "Select files to convert",
+                                           "1, 3, 4-6", "Files", lines_of)],
+                       lambda st: (lines_of(st["tokens"]), []))
     entries = files_of(state["tokens"], index)
 
     out_folder = out_dir(script_dir, "convert")
-    announce(script_dir, out_folder, file_input_lines(entries))
+    tr = announce(title, script_dir, out_folder, file_input_lines(entries))
     apps = OfficeApps()
 
     def worker(entry: Entry) -> list:
         out_path = get_unique_path(out_folder, stem_of(entry.name) + ".pdf")
-        if entry.kind == "excel":
-            excel_export(apps.get("excel"), entry.path, out_path, None)
-        else:
-            word_export(apps.get("word"), entry.path, out_path, None)
+        export = excel_export if entry.kind == "excel" else word_export
+        apps.run(entry.kind, lambda app: export(app, entry.path, out_path, None))
         return [os.path.basename(out_path)]
 
     try:
-        t0 = begin("Converting")
+        t0 = begin(tr, "Converting")
         outputs, skipped, failures = run_items(entries, "converting to PDF", worker, lambda e: e.name)
     finally:
         apps.close()
-    finish("Convert to PDF", script_dir, out_folder, t0, outputs, skipped, failures)
+    return finish(title, script_dir, out_folder, t0, outputs, skipped, failures, tr)
 
 
 # ══════════════════════════════════════════════════════════
 #  TOOL 2 - Merge PDF   (file-level; merge order = order selected)
 # ══════════════════════════════════════════════════════════
-def tool_merge_pdf(script_dir: str) -> None:
+def tool_merge_pdf(script_dir: str, title: str) -> Optional[str]:
     from pypdf import PdfReader, PdfWriter
-    index = scan_pdf_index(script_dir, count_pages=False)
-    state = run_inputs(
-        [select_step(index, "file", "Select files to merge", "3, 1, 4-6        (merged in the order typed)")],
-        lambda st: (file_input_lines(files_of(st["tokens"], index)), []))
+    index = scan_pdf_index(script_dir, False, title)
+    lines_of = lambda toks: file_input_lines(files_of(toks, index))
+    state = run_inputs(title, [select_step(
+        title, index, "file", "Select files to merge",
+        "3, 1, 4-6        (merged in the order typed)", "Files", lines_of)],
+        lambda st: (lines_of(st["tokens"]), []))
     entries = files_of(state["tokens"], index)
 
     out_folder = out_dir(script_dir, "merge")
-    announce(script_dir, out_folder, file_input_lines(entries))
+    tr = announce(title, script_dir, out_folder, file_input_lines(entries))
     writer = PdfWriter()
     merged = []
 
@@ -725,32 +927,34 @@ def tool_merge_pdf(script_dir: str) -> None:
         merged.append(entry)
         return []
 
-    t0 = begin("Merging")
+    t0 = begin(tr, "Merging")
     _, skipped, failures = run_items(entries, "reading pages", worker, lambda e: e.name)
     outputs = []
     if merged:
-        out_name = f"{stem_of(merged[0].name)} Merged.pdf"
+        out_name = f"{stem_of(merged[0].name)}_merged.pdf"
         try:
             out_path = get_unique_path(out_folder, out_name)
             write_pdf(writer, out_path)
             outputs.append(os.path.basename(out_path))
         except Exception as e:
             failures.append(make_failure(out_name, "writing merged file", f"files merged = {len(merged)}", e))
-    finish("Merge PDF", script_dir, out_folder, t0, outputs, skipped, failures)
+    return finish(title, script_dir, out_folder, t0, outputs, skipped, failures, tr)
 
 
 # ══════════════════════════════════════════════════════════
 #  TOOL 3 - Split PDF   (file-level; one file per page)
 # ══════════════════════════════════════════════════════════
-def tool_split_pdf(script_dir: str) -> None:
+def tool_split_pdf(script_dir: str, title: str) -> Optional[str]:
     from pypdf import PdfReader, PdfWriter
-    index = scan_pdf_index(script_dir, count_pages=False)
-    state = run_inputs([select_step(index, "file", "Select files to split", "1, 3, 4-6")],
-                       lambda st: (file_input_lines(files_of(st["tokens"], index)), []))
+    index = scan_pdf_index(script_dir, False, title)
+    lines_of = lambda toks: file_input_lines(files_of(toks, index))
+    state = run_inputs(title, [select_step(title, index, "file", "Select files to split",
+                                           "1, 3, 4-6", "Files", lines_of)],
+                       lambda st: (lines_of(st["tokens"]), []))
     entries = files_of(state["tokens"], index)
 
     out_folder = out_dir(script_dir, "split")
-    announce(script_dir, out_folder, file_input_lines(entries))
+    tr = announce(title, script_dir, out_folder, file_input_lines(entries))
 
     def worker(entry: Entry) -> list:
         reader = PdfReader(entry.path)
@@ -765,49 +969,57 @@ def tool_split_pdf(script_dir: str) -> None:
             names.append(os.path.basename(out_path))
         return names
 
-    t0 = begin("Splitting")
+    t0 = begin(tr, "Splitting")
     outputs, skipped, failures = run_items(entries, "reading and splitting pages", worker, lambda e: e.name)
-    finish("Split PDF", script_dir, out_folder, t0, outputs, skipped, failures)
+    return finish(title, script_dir, out_folder, t0, outputs, skipped, failures, tr)
 
 
 # ══════════════════════════════════════════════════════════
 #  TOOL 4 - Rotate PDF   (page-level)
 # ══════════════════════════════════════════════════════════
-def prompt_rotation() -> tuple:
+def prompt_rotation(title: str, choices: list) -> tuple:
     """Rotation screen -> (clockwise degrees for pypdf, label such as 'R90'). Left N == right (360 - N)."""
-    open_screen()
-    print("Rotation by: [L / R] [90 / 180]")
-    print()
-    print("Eg.: R90")
-    divider(["[L/R][90/180] Select"] + nav_keys(False))
-    while True:
-        raw = input("> ").strip()
+    def body() -> None:
+        print("Rotation by: [L / R] [90 / 180]")
+        print()
+        print("e.g. R90")
+
+    def handle(raw: str) -> tuple:
         check_nav(raw, False)
+        if not raw:
+            raise InvalidInput("")
         m = re.fullmatch(r"([LR])\s*(90|180)", raw.upper())
-        if m:
-            direction, degrees = m.group(1), int(m.group(2))
-            return (degrees if direction == "R" else 360 - degrees), f"{direction}{degrees}"
-        print(f'Invalid Input: "{raw}"')
+        if not m:
+            raise InvalidInput(f'"{raw}" does not match the pattern R90')
+        direction, degrees = m.group(1), int(m.group(2))
+        return (degrees if direction == "R" else 360 - degrees), f"{direction}{degrees}"
+
+    return prompt_screen(title, body, ["[L/R][90/180] Select"] + nav_keys(False), "Rotation: ",
+                         handle, choices)
 
 
-def tool_rotate_pdf(script_dir: str) -> None:
+def tool_rotate_pdf(script_dir: str, title: str) -> Optional[str]:
     from pypdf import PdfReader, PdfWriter
-    index = scan_pdf_index(script_dir, count_pages=True)
+    index = scan_pdf_index(script_dir, True, title)
+    lines_of = lambda toks: unit_input_lines(group_by_entry(dedupe(flatten_codes(toks)), index))
 
-    def rotation_step(st: dict) -> None:
-        st["angle"], st["label"] = prompt_rotation()
+    def rotation_step(st: dict, first: bool, choices: list) -> None:
+        st["angle"], st["label"] = prompt_rotation(title, choices)
 
     def describe(st: dict) -> tuple:
         st["groups"] = group_by_entry(dedupe(flatten_codes(st["tokens"])), index)
-        return unit_input_lines(st["groups"]), [f"\nRotation: {st['label']}"]
+        return unit_input_lines(st["groups"]), ["", f"Rotation : {st['label']}"]
 
-    state = run_inputs([select_step(index, "unit", "Select pages to rotate", "a1, b2, c4-6"),
-                        rotation_step], describe)
+    state = run_inputs(title, [
+        select_step(title, index, "unit", "Select pages to rotate", "a1, b2, c4-6", "Pages", lines_of),
+        (rotation_step, lambda st: [f"Rotation : {st['label']}"]),
+    ], describe)
     angle, label, groups = state["angle"], state["label"], state["groups"]
 
     out_folder = out_dir(script_dir, "rotate")
-    announce(script_dir, out_folder, unit_input_lines(groups))
-    print(f"\nRotation: {label}")
+    tr = announce(title, script_dir, out_folder, unit_input_lines(groups))
+    tr.say()
+    tr.say(f"Rotation : {label}")
 
     def worker(item: tuple) -> list:
         entry, idxs = item
@@ -817,34 +1029,36 @@ def tool_rotate_pdf(script_dir: str) -> None:
             if i in idxs:
                 page.rotate(angle)
             writer.add_page(page)
-        out_path = get_unique_path(out_folder, f"{stem_of(entry.name)} Rotated.pdf")
+        out_path = get_unique_path(out_folder, f"{stem_of(entry.name)}_rotated.pdf")
         write_pdf(writer, out_path)
         return [os.path.basename(out_path)]
 
-    t0 = begin("Rotating")
+    t0 = begin(tr, "Rotating")
     outputs, skipped, failures = run_items(
         groups, "rotating pages", worker, lambda it: it[0].name,
         lambda it: f"pages selected = {[i + 1 for i in it[1]]}; rotation = {label}")
-    finish("Rotate PDF", script_dir, out_folder, t0, outputs, skipped, failures)
+    return finish(title, script_dir, out_folder, t0, outputs, skipped, failures, tr)
 
 
 # ══════════════════════════════════════════════════════════
 #  TOOL 5 - Protect PDF   (file-level)
 # ══════════════════════════════════════════════════════════
-def tool_protect_pdf(script_dir: str) -> None:
+def tool_protect_pdf(script_dir: str, title: str) -> Optional[str]:
     from pypdf import PdfReader, PdfWriter
-    index = scan_pdf_index(script_dir, count_pages=False)
+    index = scan_pdf_index(script_dir, False, title)
+    lines_of = lambda toks: file_input_lines(files_of(toks, index))
 
-    def password_step(st: dict) -> None:
-        st["password"] = prompt_password("Password to apply", forbid_name_chars=True)
+    def password_step(st: dict, first: bool, choices: list) -> None:
+        st["password"] = prompt_password(title, "Password to apply", True, choices)
 
-    state = run_inputs(
-        [select_step(index, "file", "Select files to protect", "1, 3, 4-6"), password_step],
-        lambda st: (file_input_lines(files_of(st["tokens"], index)), [f"\nPassword: {st['password']}"]))
+    state = run_inputs(title, [
+        select_step(title, index, "file", "Select files to protect", "1, 3, 4-6", "Files", lines_of),
+        (password_step, lambda st: [f"Password : {st['password']}"]),
+    ], lambda st: (lines_of(st["tokens"]), ["", f"Password : {st['password']}"]))
     entries, password = files_of(state["tokens"], index), state["password"]
 
     out_folder = out_dir(script_dir, "protect")
-    announce(script_dir, out_folder, file_input_lines(entries))
+    tr = announce(title, script_dir, out_folder, file_input_lines(entries))
 
     def worker(entry: Entry) -> list:
         stem = stem_of(entry.name)
@@ -862,28 +1076,30 @@ def tool_protect_pdf(script_dir: str) -> None:
         write_pdf(writer, out_path)
         return [os.path.basename(out_path)]
 
-    t0 = begin("Protecting")
+    t0 = begin(tr, "Protecting")
     outputs, skipped, failures = run_items(entries, "reading and encrypting", worker, lambda e: e.name)
-    finish("Protect PDF", script_dir, out_folder, t0, outputs, skipped, failures)
+    return finish(title, script_dir, out_folder, t0, outputs, skipped, failures, tr)
 
 
 # ══════════════════════════════════════════════════════════
 #  TOOL 6 - Unprotect PDF   (file-level)
 # ══════════════════════════════════════════════════════════
-def tool_unprotect_pdf(script_dir: str) -> None:
+def tool_unprotect_pdf(script_dir: str, title: str) -> Optional[str]:
     from pypdf import PdfReader, PdfWriter
-    index = scan_pdf_index(script_dir, count_pages=False)
+    index = scan_pdf_index(script_dir, False, title)
+    lines_of = lambda toks: file_input_lines(files_of(toks, index))
 
-    def password_step(st: dict) -> None:
-        st["password"] = prompt_password("Password to unlock", forbid_name_chars=False)
+    def password_step(st: dict, first: bool, choices: list) -> None:
+        st["password"] = prompt_password(title, "Password to unlock", False, choices)
 
-    state = run_inputs(
-        [select_step(index, "file", "Select files to unprotect", "1, 3, 4-6"), password_step],
-        lambda st: (file_input_lines(files_of(st["tokens"], index)), [f"\nPassword: {st['password']}"]))
+    state = run_inputs(title, [
+        select_step(title, index, "file", "Select files to unprotect", "1, 3, 4-6", "Files", lines_of),
+        (password_step, lambda st: [f"Password : {st['password']}"]),
+    ], lambda st: (lines_of(st["tokens"]), ["", f"Password : {st['password']}"]))
     entries, password = files_of(state["tokens"], index), state["password"]
 
     out_folder = out_dir(script_dir, "unprotect")
-    announce(script_dir, out_folder, file_input_lines(entries))
+    tr = announce(title, script_dir, out_folder, file_input_lines(entries))
 
     def worker(entry: Entry) -> list:
         reader = PdfReader(entry.path)
@@ -900,26 +1116,28 @@ def tool_unprotect_pdf(script_dir: str) -> None:
         write_pdf(writer, out_path)
         return [os.path.basename(out_path)]
 
-    t0 = begin("Unprotecting")
+    t0 = begin(tr, "Unprotecting")
     outputs, skipped, failures = run_items(entries, "opening and decrypting", worker, lambda e: e.name)
-    finish("Unprotect PDF", script_dir, out_folder, t0, outputs, skipped, failures)
+    return finish(title, script_dir, out_folder, t0, outputs, skipped, failures, tr)
 
 
 # ══════════════════════════════════════════════════════════
 #  TOOL 7 - Convert to PDF Precise   (unit-level: Excel sheets, Word pages)
 # ══════════════════════════════════════════════════════════
-def tool_convert_to_pdf_precise(script_dir: str) -> None:
-    index = scan_office_index(script_dir, with_units=True)
+def tool_convert_to_pdf_precise(script_dir: str, title: str) -> Optional[str]:
+    index = scan_office_index(script_dir, True, title)
+    lines_of = lambda toks: unit_input_lines(group_by_entry(dedupe(flatten_codes(toks)), index))
 
     def describe(st: dict) -> tuple:
         st["groups"] = group_by_entry(dedupe(flatten_codes(st["tokens"])), index)
         return unit_input_lines(st["groups"]), []
 
-    state = run_inputs([select_step(index, "unit", "Select sheets or pages to convert", "a1, b, c2-3")], describe)
+    state = run_inputs(title, [select_step(title, index, "unit", "Select sheets or pages to convert",
+                                           "a1, b, c2-3", "Sheets or pages", lines_of)], describe)
     groups = state["groups"]
 
     out_folder = out_dir(script_dir, "convert")
-    announce(script_dir, out_folder, unit_input_lines(groups))
+    tr = announce(title, script_dir, out_folder, unit_input_lines(groups))
     apps = OfficeApps()
 
     def worker(item: tuple) -> list:
@@ -928,39 +1146,41 @@ def tool_convert_to_pdf_precise(script_dir: str) -> None:
         out_path = get_unique_path(out_folder, stem_of(entry.name) + ".pdf")
         if entry.kind == "excel":
             keep = None if whole else [entry.unit_names[i] for i in idxs]
-            excel_export(apps.get("excel"), entry.path, out_path, keep)
+            apps.run("excel", lambda app: excel_export(app, entry.path, out_path, keep))
         else:
-            word_export(apps.get("word"), entry.path, out_path, None if whole else idxs)
+            apps.run("word", lambda app: word_export(app, entry.path, out_path, None if whole else idxs))
         return [os.path.basename(out_path)]
 
     try:
-        t0 = begin("Converting")
+        t0 = begin(tr, "Converting")
         outputs, skipped, failures = run_items(
             groups, "converting selection to PDF", worker, lambda it: it[0].name,
             lambda it: f"{it[0].unit_word}s selected = {[i + 1 for i in it[1]]} of {it[0].count}")
     finally:
         apps.close()
-    finish("Convert to PDF Precise", script_dir, out_folder, t0, outputs, skipped, failures)
+    return finish(title, script_dir, out_folder, t0, outputs, skipped, failures, tr)
 
 
 # ══════════════════════════════════════════════════════════
 #  TOOL 8 - Selective Combine   (unit-level; one output, order as selected)
 # ══════════════════════════════════════════════════════════
-def tool_selective_combine(script_dir: str) -> None:
+def tool_selective_combine(script_dir: str, title: str) -> Optional[str]:
     from pypdf import PdfReader, PdfWriter
-    index = scan_pdf_index(script_dir, count_pages=True)
+    index = scan_pdf_index(script_dir, True, title)
+    lines_of = lambda toks: unit_input_lines(ordered_groups(flatten_codes(toks), index))
 
     def describe(st: dict) -> tuple:
         st["codes"] = flatten_codes(st["tokens"])             # order and repeats kept on purpose
-        return unit_input_lines(ordered_groups(st["codes"], index)), [f"\nOutput pages: {len(st['codes'])}"]
+        return (unit_input_lines(ordered_groups(st["codes"], index)),
+                ["", f"Output pages : {len(st['codes'])}"])
 
-    state = run_inputs(
-        [select_step(index, "unit", "Select pages to combine", "a1, b, c4-6        (combined in the order typed)")],
-        describe)
+    state = run_inputs(title, [select_step(
+        title, index, "unit", "Select pages to combine",
+        "a1, b, c4-6        (combined in the order typed)", "Pages", lines_of)], describe)
     codes = state["codes"]
 
     out_folder = out_dir(script_dir, "combine")
-    announce(script_dir, out_folder, unit_input_lines(ordered_groups(codes, index)))
+    tr = announce(title, script_dir, out_folder, unit_input_lines(ordered_groups(codes, index)))
     writer = PdfWriter()
     readers = {}
     added = []
@@ -973,7 +1193,7 @@ def tool_selective_combine(script_dir: str) -> None:
         added.append(code)
         return []
 
-    t0 = begin("Combining")
+    t0 = begin(tr, "Combining")
     _, skipped, failures = run_items(
         codes, "adding pages", worker,
         lambda c: f'{index.code_map[c][0].name} {c}',
@@ -988,15 +1208,16 @@ def tool_selective_combine(script_dir: str) -> None:
             outputs.append(os.path.basename(out_path))
         except Exception as e:
             failures.append(make_failure(out_name, "writing combined file", f"pages added = {n}", e))
-    finish("Selective Combine", script_dir, out_folder, t0, outputs, skipped, failures)
+    return finish(title, script_dir, out_folder, t0, outputs, skipped, failures, tr)
 
 
 # ══════════════════════════════════════════════════════════
 #  TOOL 9 - Selective Extract   (unit-level; each token = one output file)
 # ══════════════════════════════════════════════════════════
-def tool_selective_extract(script_dir: str) -> None:
+def tool_selective_extract(script_dir: str, title: str) -> Optional[str]:
     from pypdf import PdfReader, PdfWriter
-    index = scan_pdf_index(script_dir, count_pages=True)
+    index = scan_pdf_index(script_dir, True, title)
+    lines_of = lambda toks: unit_input_lines(group_by_entry(flatten_codes(toks), index))
 
     def make_job(codes: list) -> tuple:
         entry = index.code_map[codes[0]][0]
@@ -1016,15 +1237,16 @@ def tool_selective_extract(script_dir: str) -> None:
     def describe(st: dict) -> tuple:
         st["jobs"] = jobs_of(st["tokens"])
         groups = group_by_entry(flatten_codes(st["tokens"]), index)
-        extra = [f"\nOutput files: {len(st['jobs'])}"] + numbered([f'"{name}"' for _, _, name in st["jobs"]])
+        extra = ["", f"Output files: {len(st['jobs'])}"] + numbered([f'"{name}"' for _, _, name in st["jobs"]])
         return unit_input_lines(groups), extra
 
-    state = run_inputs(
-        [select_step(index, "unit", "Select pages to extract", "a1, b2, c4-6        (each entry = one file)")], describe)
+    state = run_inputs(title, [select_step(
+        title, index, "unit", "Select pages to extract",
+        "a1, b2, c4-6        (each entry = one file)", "Pages", lines_of)], describe)
     jobs = state["jobs"]
 
     out_folder = out_dir(script_dir, "extract")
-    announce(script_dir, out_folder, unit_input_lines(group_by_entry(flatten_codes(state["tokens"]), index)))
+    tr = announce(title, script_dir, out_folder, lines_of(state["tokens"]))
     readers = {}
 
     def worker(job: tuple) -> list:
@@ -1038,11 +1260,11 @@ def tool_selective_extract(script_dir: str) -> None:
         write_pdf(w, out_path)
         return [os.path.basename(out_path)]
 
-    t0 = begin("Extracting")
+    t0 = begin(tr, "Extracting")
     outputs, skipped, failures = run_items(
         jobs, "extracting pages", worker, lambda j: j[2],
         lambda j: f'source = "{j[0].name}"; pages = {[i + 1 for i in j[1]]}')
-    finish("Selective Extract", script_dir, out_folder, t0, outputs, skipped, failures)
+    return finish(title, script_dir, out_folder, t0, outputs, skipped, failures, tr)
 
 
 # ══════════════════════════════════════════════════════════
@@ -1065,7 +1287,6 @@ def build_menu() -> str:
     """The boxed two-column menu: BASIC (1-6) on the left, ADVANCE (7-9) on the right."""
     w = 31                                       # inner width of each column
     bar = "+" + "-" * w + "+" + "-" * w + "+"
-    full = "+" + "-" * (2 * w + 1) + "+"
 
     def row(left: str, right: str) -> str:
         return f"| {left:<{w - 1}}| {right:<{w - 1}}|"
@@ -1073,39 +1294,46 @@ def build_menu() -> str:
     cell = lambda k: f"[{k}] {TOOLS[k][0]}"
     lefts = [cell(k) for k in "123456"]
     rights = [cell(k) for k in "789"]
-    lines = [bar, row(f"  PDF Tools {VERSION}", ""), bar, row("BASIC", "ADVANCE"), bar]
+    lines = [bar, row("BASIC", "ADVANCE"), bar]
     for i, left in enumerate(lefts):
         lines.append(row(left, rights[i] if i < len(rights) else ""))
-    lines += [bar, f"| {'[00] Exit':<{2 * w}}|", full]
+    lines.append(bar)
     return chr(10).join(lines)
 
 
-def choose_tool() -> str:
-    """Menu screen. Returns '00' (exit) or a key of TOOLS. No [0]: there is no previous level."""
-    open_screen()
-    print(build_menu())
-    return ask({"00"} | set(TOOLS), ["[#] Select", "[00] Exit"])
+def choose_tool(notice: Optional[str]) -> str:
+    """Menu screen. Returns '0' (exit) or a key of TOOLS. notice: left by the last tool (Saved: ...)."""
+    def handle(raw: str) -> str:
+        if raw == "0" or raw in TOOLS:
+            return raw
+        raise InvalidInput("")
+
+    return prompt_screen(SUITE_NAME, lambda: print(build_menu()), ["[#] Select", "[0] Exit"],
+                         "Ans: ", handle, notice=notice)
 
 
-def run_tool(name: str, fn: Callable, script_dir: str) -> None:
-    """One tool run. UserCancelled ends quietly (back to the menu); ExitSession propagates to main()."""
+def run_tool(name: str, fn: Callable, script_dir: str) -> Optional[str]:
+    """One tool run -> notice for the menu screen. UserCancelled ends quietly (back to the
+    menu); ExitSession propagates to main()."""
     try:
-        fn(script_dir)
+        return fn(script_dir, name)
     except UserCancelled:
-        return
-    except ExitSession:
+        return None
+    except (ExitSession, ExitProgram):
         raise
     except NoInput as e:
-        open_screen()
-        print(e)
-        tail(name, script_dir, script_dir, [])
+        open_screen(name)
+        tr = Transcript()
+        tr.say(str(e))
+        return tail(name, script_dir, script_dir, [], tr)
     except Exception as e:
         failures = [make_failure(name, "running tool", "", e)]
-        open_screen()
-        print("FAILED: tool stopped unexpectedly")
+        open_screen(name)
+        tr = Transcript()
+        tr.say("FAILED: tool stopped unexpectedly")
         for line in failure_lines([(failures[0]["item"], failures[0]["error"])]):
-            print(line)
-        tail(name, script_dir, script_dir, failures)
+            tr.say(line)
+        return tail(name, script_dir, script_dir, failures, tr)
 
 
 def main() -> None:
@@ -1117,19 +1345,23 @@ def main() -> None:
         except Exception:
             pass
 
+    notice = None
     while True:
-        choice = choose_tool()
-        if choice == "00":
-            break
+        choice = choose_tool(notice)
+        if choice == "0":
+            return                                  # [0] Exit: close immediately, no screen
         name, fn = TOOLS[choice]
         try:
-            run_tool(name, fn, script_dir)
+            notice = run_tool(name, fn, script_dir)
+        except ExitProgram:
+            return                                  # [0] Exit after a tool: close immediately
         except ExitSession:
-            break
-
-    # Every exit ends here, so a double-clicked window never vanishes unread
-    # (which is why no extra "are you sure" is needed before it).
-    ask({""}, ["[Enter] Close"])
+            open_screen(name)
+            print("Cancelled.")
+            print()
+            print("-" * LINE_WIDTH)
+            input("[Enter] to close...")
+            return
 
 
 if __name__ == "__main__":
@@ -1138,6 +1370,8 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"FAILED: {type(e).__name__} - {e}")
         try:
-            input("\n[Enter] Close\n\n> ")
+            print()
+            print("-" * LINE_WIDTH)
+            input("[Enter] to close...")
         except Exception:
             pass

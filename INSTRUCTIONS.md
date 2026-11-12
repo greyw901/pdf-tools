@@ -12,14 +12,16 @@ Every tool follows the same flow, and **nothing is processed until you have seen
 
 1. Pick a tool
 2. Pick the files (or pages)
-3. Check the summary, `[Enter]` to confirm
+3. Check the summary, `[Enter]` to continue
 4. Read the result: `Outputs` / `Skipped` / `Failed`
 
 ## Main Menu
 
 ```
-+-------------------------------+-------------------------------+
-|   PDF Tools v2.1_20261111     |                               |
+========================================================
+PDF Tools
+========================================================
+
 +-------------------------------+-------------------------------+
 | BASIC                         | ADVANCE                       |
 +-------------------------------+-------------------------------+
@@ -30,17 +32,15 @@ Every tool follows the same flow, and **nothing is processed until you have seen
 | [5] Protect PDF               |                               |
 | [6] Unprotect PDF             |                               |
 +-------------------------------+-------------------------------+
-| [00] Exit                                                     |
-+---------------------------------------------------------------+
 
 --------------------------------------------------------
 [#] Select
-[00] Exit
+[0] Exit
 
->
+Ans:
 ```
 
-Every other screen has the same shape: a `=` line on top, the question, the choices, a `-` line, the keys you can press, a blank line, then a `>` where you type. Keys in `[ ]` are what you press. Tools 1, 2, 3, 5, 6 work on whole files, picked by number. Tools 4, 7, 8, 9 work on individual pages or sheets, picked by code (`a1-a20`).
+The window is cleared for every screen. Every screen has the same shape: the tool name between `=` lines, what you have already chosen, the question and its choices, a `-` line, the keys you can press, a blank line, then the prompt where you type. Keys in `[ ]` are what you press. Tools 1, 2, 3, 5, 6 work on whole files, picked by number. Tools 4, 7, 8, 9 work on individual pages or sheets, picked by code (`a1-a20`).
 
 ## Where the Output Goes
 
@@ -48,17 +48,17 @@ Every tool writes its result **next to the input files**, in the same folder as 
 
 Input files are never modified or deleted. If an output name already exists, `_1`, `_2` ... is added.
 
-Because results land in the same folder, they show up in the file list the next time you run a tool (for example `Report Merged.pdf`). Move finished files out when you no longer want them listed.
+Because results land in the same folder, they show up in the file list the next time you run a tool (for example `Report_merged.pdf`). Move finished files out when you no longer want them listed.
 
 ## What Each Tool Does
 
 **1 — Convert to PDF** — Converts the Excel (`.xls .xlsx .xlsm .xlsb`) and Word (`.doc .docx`) files you pick to PDF. Excel: all visible sheets in one PDF per file. Word: the whole document. Output: `name.pdf`. Needs Microsoft Excel and Word.
 
-**2 — Merge PDF** — Merges the PDFs you pick into one, in the order you type (`3, 1` merges file 3 first). Enter = all files in list order. Output: `firstfile Merged.pdf`.
+**2 — Merge PDF** — Merges the PDFs you pick into one, in the order you type (`3, 1` merges file 3 first). Enter = all files in list order. Output: `firstfile_merged.pdf`.
 
 **3 — Split PDF** — Splits each PDF you pick into single-page files. Output: `name p1.pdf`, `name p2.pdf`, ...
 
-**4 — Rotate PDF** — Pick pages, then enter direction + angle: `R90`, `L90`, `R180`, `L180`. Picked pages rotate; the rest stay unchanged. Output: `name Rotated.pdf`.
+**4 — Rotate PDF** — Pick pages, then enter direction + angle: `R90`, `L90`, `R180`, `L180`. Picked pages rotate; the rest stay unchanged. Output: `name_rotated.pdf`.
 
 **5 — Protect PDF** — Adds a password to the PDFs you pick. Output: `name_pw_PASSWORD.pdf` — remove the password from the filename before sending the file to anyone else. Files that already have `_pw_` in the name, or are already encrypted, are skipped.
 
@@ -82,8 +82,8 @@ Tools 1, 2, 3, 5, 6 list **files** by number:
 Tools 4, 7, 8, 9 list **pages** (Excel files in tool 7 list sheets):
 
 ```
-   a Pages: [a1-a20] - "Report.pdf"
-   b Pages: [b1-b5] - "Invoice.pdf"
+   a Pages: [a1-a5] - "Invoice.pdf"
+   b Pages: [b1-b20] - "Report.pdf"
 ```
 
 | Files (1, 2, 3, 5, 6) | Meaning |
@@ -103,59 +103,69 @@ A selection screen looks like this:
 
 ```
 ========================================================
+Rotate PDF
+========================================================
 
 Select pages to rotate
 
-Eg.: a1, b2, c4-6
+e.g. a1, b2, c4-6
 
-   a Pages: [a1-a20] - "Report.pdf"
-   b Pages: [b1-b5] - "Invoice.pdf"
+   a Pages: [a1-a5] - "Invoice.pdf"
+   b Pages: [b1-b20] - "Report.pdf"
 
 --------------------------------------------------------
 [Enter] Select all
 [#] Select
 [0] Back to menu
-[00] Exit
+[00] Cancel & exit
 
->
+Pages:
 ```
 
-If any part of your input isn't recognized, the whole entry is rejected and you type again (nothing is half-accepted):
-
-```
-> xyz
-Invalid Input: "xyz"
-> 
-```
-
-Rotate then asks for direction and angle (`R90`, `L90`, `R180`, `L180`). After that you get the confirmation screen, which lists exactly what will be processed:
+If any part of your input isn't recognized, the whole entry is rejected (nothing is half-accepted) and the same screen comes back with the reason above the question:
 
 ```
 ========================================================
+Rotate PDF
+========================================================
 
-Confirm Inputs: 1
-   1. "Report.pdf"   Page 1 of 20
+Error: Invalid Input - not valid: "xyz"
 
-Rotation: R90
+Select pages to rotate
+...
+```
+
+Rotate then asks for direction and angle (`R90`, `L90`, `R180`, `L180`). After that you get the confirm screen, which lists exactly what will be processed:
+
+```
+========================================================
+Rotate PDF
+========================================================
+
+Confirm Inputs: 2
+   1. "Invoice.pdf"   Page 1 of 5
+   2. "Report.pdf"   Pages 2-3 of 20
+
+Rotation : R90
 
 --------------------------------------------------------
-[Enter] Confirm
+[Enter] Continue
 [0] Back
-[00] Exit
+[00] Cancel & exit
 
->
+Ans:
 ```
 
 The keys mean the same on every screen:
 
 | Key | Meaning |
 |---|---|
-| `[Enter]` | the default action (confirm, select all, continue) |
+| `[Enter]` | the default action (select all, continue, back to menu) |
 | `[#]` | pick items from the list |
-| `[0]` | back one screen - `[0] Back to menu` on a tool's first screen |
-| `[00]` | exit the program from any screen |
+| `[0]` | back one screen — `[0] Back to menu` on a tool's first screen, `[0] Exit` on the main menu |
+| `[00]` | cancel and close the program, from any tool screen |
 
-Nothing asks "are you sure": nothing has been processed until the run starts, so backing out costs nothing. Because `0` and `00` are navigation keys, neither can be used as a password.
+`[00]` shows `Cancelled.` and waits for `[Enter] to close...`, so a double-clicked window never vanishes unread. Nothing asks "are you sure": nothing has been processed until the run starts, so backing out costs nothing. Because `0` and `00` are navigation keys, neither can be used as a password.
 
 ## Unreadable Files
 
@@ -163,17 +173,18 @@ Tools 4, 7, 8, 9 need page or sheet counts, so unreadable files are listed once 
 
 ```
 ========================================================
+Rotate PDF
+========================================================
 
 Unreadable: 1
-
-   1. "file1.pdf"   :   PdfStreamError - Stream has ended unexpectedly
+   1. "Broken.pdf"   :   PdfStreamError - Stream has ended unexpectedly
 
 --------------------------------------------------------
 [Enter] Skip & continue
 [0] Back to menu
-[00] Exit
+[00] Cancel & exit
 
->
+Ans:
 ```
 
 For the other tools an unreadable file shows up under `Failed` after processing.
@@ -182,20 +193,34 @@ For the other tools an unreadable file shows up under `Failed` after processing.
 
 ```
 ========================================================
+Rotate PDF
+========================================================
 
 Inputs: 2
-   1. "Report.pdf"   Page 1 of 20
-   2. "Invoice.pdf"   Pages 2-3 of 5
+   1. "Invoice.pdf"   Page 1 of 5
+   2. "Report.pdf"   Pages 2-3 of 20
 
-Rotation: R90
+Rotation : R90
 
 Processing
 Rotating ...
 
 Outputs: 2
-   1. "Report Rotated.pdf"
-   2. "Invoice Rotated.pdf"
+   1. "Invoice_rotated.pdf"
+   2. "Report_rotated.pdf"
 
+Elapsed: 0.1s
+
+--------------------------------------------------------
+[Enter] Back to menu
+[0] Exit
+
+Ans:
+```
+
+When something failed, a `Skipped` and/or `Failed` list appears after `Outputs`, and `[0]` changes to `[0] Save error log & back to menu`:
+
+```
 Skipped: 1
    1. "Plain.pdf"   :   no password
 
@@ -207,19 +232,16 @@ Elapsed: 0.4s
 --------------------------------------------------------
 [Enter] Back to menu
 [0] Save error log & back to menu
-[00] Exit
 
->
+Ans:
 ```
 
-- **Skipped** - nothing to do for that file; not a problem.
-- **Failed** - something went wrong; the reason follows the colon.
+- **Skipped** — nothing to do for that file; not a problem.
+- **Failed** — something went wrong; the reason follows the colon.
 
-`[0] Save error log & back to menu` only appears when something failed. It writes `error log_YYYYMMDD.txt` next to the exe with the step, error, context and traceback for every failure, then returns to the menu. The log starts with the input and output folder.
+`[0] Save error log & back to menu` writes `error log_YYYYMMDD.txt` next to the exe with the step, error, context and traceback for every failure, then returns to the menu, which shows `Saved: "error log_YYYYMMDD.txt"` at the top. The log starts with the input and output folder. To close the program afterwards, press `[0] Exit` on the menu.
 
-Split PDF and Selective Extract add one line above `Inputs`, because their output goes to a different folder: `Output folder: "...\Split"`. The other tools print no folder line - input and output are the same folder as the exe.
-
-Every exit (`[00]` anywhere) ends on a final `[Enter] Close` screen, so a double-clicked window never vanishes unread.
+Split PDF and Selective Extract add one line above `Inputs`, because their output goes to a different folder: `Output folder: "...\Split"`. The other tools print no folder line — input and output are the same folder as the exe.
 
 ## Requirements
 
@@ -232,6 +254,7 @@ Every exit (`[00]` anywhere) ends on a final `[Enter] Close` screen, so a double
 |---|---|
 | Console closes immediately | Input files missing from folder — place files in the same folder as the script/exe |
 | Tool 1 or 7 fails | Microsoft Office not installed, or an Office process is stuck — close any lingering EXCEL.EXE / WINWORD.EXE |
+| `OfficePrompt - Word showed a prompt: '... it caused a serious error ...'` under "Failed" | Word needs a click to open that file (an earlier run was force-closed while opening it). Open it once in Word, click Yes, close it, then run the tool again |
 | File listed under "Failed" | Read the reason after the colon; save the error log with `[0]` on the result screen |
 | Wrong password on Unprotect | Check the filename for the `_pw_PASSWORD` hint |
 | File listed under "Skipped" | Nothing to do for that file; the reason is shown after the colon |
@@ -246,13 +269,13 @@ Every exit (`[00]` anywhere) ends on a final `[Enter] Close` screen, so a double
 
 | Block | Contents |
 |---|---|
-| Constants | `VERSION`, `LINE_WIDTH`, `MAX_LISTED`, extensions, `PW_MARK`, `OUT_FOLDERS` (Split, Extract) |
-| Signals | `UserCancelled`, `NoInput`, `ExitSession`, `SkipItem`, `GoBack` |
+| Constants | `VERSION`, `LINE_WIDTH`, `MAX_LISTED`, extensions, `PW_MARK`, `OUT_FOLDERS` (Split, Extract), `OFFICE_TIMEOUT` |
+| Signals | `UserCancelled`, `NoInput`, `ExitSession`, `ExitProgram`, `InvalidInput`, `SkipItem`, `GoBack` |
 | Paths / naming | `get_script_dir`, `get_unique_path`, `out_dir`, `list_files`, `prefix_generator`, `dedupe` |
-| Screens | `open_screen`, `divider`, `ask`, `nav_keys`, `check_nav` - the one `=` / `-` / `>` screen grammar and fixed key vocabulary (script-conventions Console rules 10-11) |
+| Screens | `clear_screen`, `open_screen`, `options`, `prompt_screen`, `nav_keys`, `check_nav` — one screen layout and one key vocabulary (script-conventions Console rules 10–11) |
 | File index + selection | `Entry`, `Token`, `Index`, `scan_pdf_index`, `parse_tokens`, `prompt_selection`, `select_step`, `run_inputs`, `confirm`, `prompt_password`, `unit_input_lines`, `ordered_groups` |
 | Processing + report | `run_items`, `announce`, `begin`, `finish`, `tail`, `write_error_log`, `make_failure` |
-| Office helpers | `OfficeApps`, `excel_export`, `word_export`, `scan_office_index` |
+| Office helpers | `OfficePrompt`, `OfficeApps` (watchdog), `excel_export`, `word_export`, `excel_visible_sheets`, `word_page_count`, `scan_office_index` |
 | Tools | nine thin `tool_xxx()` functions |
 | Menu | `TOOLS`, `build_menu`, `choose_tool`, `run_tool`, `main` |
 
@@ -266,10 +289,10 @@ scan files once -> run_inputs([select, (tool step)] + confirm)
 ```
 
 - Selection level is `"file"` (tools 1, 2, 3, 5, 6) or `"unit"` (4, 7, 8, 9). One parser, one set of prompts.
-- Input screens are steps in `run_inputs()`: each step stores its answer in a shared dict, the confirm screen is always last. `[0]` is one screen back (on the first step it returns to the menu), `[00]` ends the session from anywhere; there is deliberately no extra "are you sure" prompt.
+- Every screen goes through `prompt_screen()`: clear, banner, choices so far, the `Error: Invalid Input ...` / `Saved: ...` notice, body, `-` line, keys, prompt. Invalid input raises `InvalidInput` in the screen's handler and the same screen is redrawn with the reason — no pause.
+- Input screens are steps in `run_inputs()`: each step stores its answer in a shared dict, the confirm screen is always last. `[0]` is one screen back (on the first step it returns to the menu), `[00]` ends the session from any tool screen; there is deliberately no extra "are you sure" prompt.
 - The scan happens **once**, before the steps; going back never re-scans or re-shows `Unreadable`.
 - The confirm screen and the run report's `Inputs` block print the same lines (`describe()` builds them once), so what you confirmed is what is reported.
-- Invalid input never half-accepts: the whole entry is rejected and re-asked on the same screen.
 - Workers return output names and never print. `run_items` is the only loop; it files exceptions into `Failed` / `Skipped`.
 - `begin()` is the statement directly before `run_items`, so the last line on screen always names the running stage.
 
@@ -277,13 +300,19 @@ scan files once -> run_inputs([select, (tool step)] + confirm)
 
 | Exception | Raised when | Caught in |
 |---|---|---|
+| `InvalidInput` | a screen's handler rejects the answer | `prompt_screen()` → same screen redrawn with the reason |
 | `GoBack` | `[0]` on an input screen after the first | `run_inputs()` → previous screen |
 | `UserCancelled` | `[0]` on a tool's first screen / `Unreadable` | `run_tool()` → back to menu |
 | `NoInput` | no files found for the tool | `run_tool()` → normal tail |
-| `ExitSession` | `[00]` on any screen (`check_nav`, `tail`) | `main()` → final `[Enter] Close` screen |
+| `ExitSession` | `[00]` on any tool screen | `main()` → `Cancelled.` + `[Enter] to close...` |
+| `ExitProgram` | `[0] Exit` on the Tool finished screen (no failures) | `main()` → closes immediately |
 | `SkipItem` | worker: nothing to do for the item | `run_items()` |
 
-This replaces the v1.x `"CANCELLED"` string return, which every caller had to remember to check. New mid-tool exit point: `raise UserCancelled()`, never `return`. An unexpected exception inside a tool is caught in `run_tool()`, shown as `FAILED`, and goes to the normal tail so the log can be saved.
+New mid-tool exit point: `raise UserCancelled()`, never `return`. An unexpected exception inside a tool is caught in `run_tool()`, shown as `FAILED`, and goes to the normal tail so the log can be saved.
+
+### Tool finished screen
+
+`[Enter] Back to menu` always. `[0]` is `Save error log & back to menu` when something failed, otherwise `Exit` — a lone `[Enter]` would give no choice, and closing would take `[Enter]` then `[0]` on the menu.
 
 ### Error log
 
@@ -291,7 +320,11 @@ Written only when `[0] Save error log & back to menu` is pressed at the tail. Th
 
 ### Output naming
 
-Outputs go next to the inputs (`out_dir()`); only Split and Selective Extract get a subfolder. Folder lines print on the run report only when the output folder differs from the script folder. All outputs are deliverables: no run date, words separated by spaces, underscore only for the collision counter. One deliberate exception: Protect PDF keeps `name_pw_PASSWORD.pdf` so the password hint travels with the file; Unprotect strips it. The `_unprotected` suffix and its skip check were removed — Unprotect skips by `reader.is_encrypted`.
+Outputs go next to the inputs (`out_dir()`); only Split and Selective Extract get a subfolder. Folder lines print on the run report only when the output folder differs from the script folder. All outputs are deliverables: no run date. A processed copy keeps the source name plus a lowercase process suffix (`_merged`, `_rotated`); Protect uses `_pw_PASSWORD` so the password hint travels with the file, and Unprotect strips it. Split and Extract add a page label with a space (`name p3.pdf`); Convert and Unprotect only change the format or state, so they keep the plain name. Combine is not named after a source (`Combined 12 pages.pdf`). The collision counter `_1`, `_2` follows everything.
+
+### Office watchdog (tools 1 and 7)
+
+Every Excel/Word job goes through `OfficeApps.run()`. The instance is `DispatchEx` + hidden, and its PID is captured at start. A watchdog thread checks once a second: a visible window owned by that PID means Office is waiting on a prompt (e.g. Word's "it caused a serious error last time", which `DisplayAlerts` does not suppress); no answer after `OFFICE_TIMEOUT` seconds means it hung. Either way the watchdog reads the prompt text, kills **only that PID**, and the item lands under `Failed` as `OfficePrompt`; the next item gets a fresh instance. The user's own Excel/Word windows are never touched.
 
 ### Tool notes
 
@@ -315,24 +348,24 @@ script_dir = os.path.dirname(os.path.abspath(
 
 ### Versioning
 
-Format: `v{major}.{minor}_{YYYYMMDD}`. Current: `v2.1_20261111`. Update the `VERSION` constant in `PDF Tools.py`, `version_info.txt`, and this file.
+Format: `v{major}.{minor}_{YYYYMMDD}`. Current: `v2.2_20261113`. Update the `VERSION` constant in `PDF Tools.py`, `version_info.txt`, `PDF Tools Instruction.txt` and this file.
 
 ### Packaging
 
+Build from a clean virtual environment so the exe only bundles what the script needs:
+
 ```bash
-pip install pyinstaller
-pyinstaller --onefile --version-file=version_info.txt "PDF Tools.py"
+python -m venv venv
+venv\Scripts\pip install pyinstaller pypdf pywin32
+venv\Scripts\python -m PyInstaller --onefile --console --version-file=version_info.txt ^
+  --hidden-import win32com --hidden-import win32com.client --hidden-import win32com.server ^
+  --hidden-import pywintypes --hidden-import win32gui --hidden-import win32process ^
+  "PDF Tools.py"
 ```
 
 `version_info.txt` embeds author/version info into the exe's Windows Properties > Details tab — this is what survives if the `.exe` ever gets forwarded on its own, with no source code or docs attached.
 
-Output: `dist/PDF Tools.exe`. The `build/` folder can be deleted after packaging; keep the generated `.spec` file for faster repeat builds (`pyinstaller "PDF Tools.spec"`).
-
-If tools 1 or 7 crash in the `.exe` but work fine as a `.py` file, add this to `hiddenimports` in the `.spec` file:
-
-```python
-['win32com', 'win32com.client', 'win32com.server', 'pywintypes']
-```
+Output: `dist/PDF Tools.exe`. The `build/` folder and `.spec` file can be deleted after packaging.
 
 ### Dependencies
 
@@ -351,9 +384,10 @@ Python 3.8+. Microsoft Excel and Word required on the machine running the script
 - No auto-update — distribute new versions manually.
 - Rotate PDF applies one direction + angle per run. For mixed angles, run the tool again on the output.
 - The password prompt is visible by design.
+- Screen clearing uses the Windows `cls` command: it works when double-clicked or run in cmd / PowerShell, not in an IDE output panel.
 
 ---
-**Version:** v2.1_20261111
+**Version:** v2.2_20261113
 
 **Author:** Yeoh Huey Sun
 **Email:** greyw901@gmail.com
