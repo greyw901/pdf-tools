@@ -37,7 +37,7 @@ from typing import Callable, Optional
 #  CONSTANTS
 # ══════════════════════════════════════════════════════════
 SUITE_NAME    = "PDF Tools"
-VERSION       = "v2.2_20261113"          # not shown on screen; goes into the exe version file
+VERSION       = "v2.3_20261115"          # not shown on screen; goes into the exe version file
 LINE_WIDTH    = 56                       # banner / divider width
 MAX_LISTED    = 20                       # longest numbered list printed before "... and n more"
 EXCEL_EXTS    = {".xls", ".xlsx", ".xlsm", ".xlsb"}
@@ -288,7 +288,7 @@ def show_unreadable(title: str, unreadable: list) -> None:
             check_nav(raw, True)
             raise InvalidInput("")
 
-    prompt_screen(title, body, ["[Enter] Skip & continue"] + nav_keys(True), "Ans: ", handle)
+    prompt_screen(title, body, ["[Enter] Skip & continue"] + nav_keys(True), "Action: ", handle)
 
 
 def finalize_index(entries: list, unreadable: list, noun: str, title: str) -> Index:
@@ -460,7 +460,7 @@ def confirm(title: str, inputs: list, extra: Optional[list] = None) -> None:
             check_nav(raw, False)
             raise InvalidInput("")
 
-    prompt_screen(title, body, ["[Enter] Continue"] + nav_keys(False), "Ans: ", handle)
+    prompt_screen(title, body, ["[Enter] Continue"] + nav_keys(False), "Action: ", handle)
 
 
 def prompt_password(title: str, heading: str, forbid_name_chars: bool, choices: list) -> str:
@@ -625,7 +625,7 @@ def tail(title: str, script_dir: str, out_folder: str, failures: list,
             raise ExitProgram()
         raise InvalidInput("")
 
-    return prompt_screen(title, body, keys, "Ans: ", handle)
+    return prompt_screen(title, body, keys, "Action: ", handle)
 
 
 def finish(title: str, script_dir: str, out_folder: str, t0: float, outputs: list,
@@ -1308,8 +1308,13 @@ def choose_tool(notice: Optional[str]) -> str:
             return raw
         raise InvalidInput("")
 
-    return prompt_screen(SUITE_NAME, lambda: print(build_menu()), ["[#] Select", "[0] Exit"],
-                         "Ans: ", handle, notice=notice)
+    def body() -> None:
+        print("Select tool:")
+        print()
+        print(build_menu())
+
+    return prompt_screen(SUITE_NAME, body, ["[#] Select", "[0] Exit"], "Tool: ", handle,
+                         notice=notice)
 
 
 def run_tool(name: str, fn: Callable, script_dir: str) -> Optional[str]:

@@ -22,6 +22,8 @@ Every tool follows the same flow, and **nothing is processed until you have seen
 PDF Tools
 ========================================================
 
+Select tool:
+
 +-------------------------------+-------------------------------+
 | BASIC                         | ADVANCE                       |
 +-------------------------------+-------------------------------+
@@ -37,7 +39,7 @@ PDF Tools
 [#] Select
 [0] Exit
 
-Ans:
+Tool:
 ```
 
 The window is cleared for every screen. Every screen has the same shape: the tool name between `=` lines, what you have already chosen, the question and its choices, a `-` line, the keys you can press, a blank line, then the prompt where you type. Keys in `[ ]` are what you press. Tools 1, 2, 3, 5, 6 work on whole files, picked by number. Tools 4, 7, 8, 9 work on individual pages or sheets, picked by code (`a1-a20`).
@@ -153,7 +155,7 @@ Rotation : R90
 [0] Back
 [00] Cancel & exit
 
-Ans:
+Action:
 ```
 
 The keys mean the same on every screen:
@@ -184,7 +186,7 @@ Unreadable: 1
 [0] Back to menu
 [00] Cancel & exit
 
-Ans:
+Action:
 ```
 
 For the other tools an unreadable file shows up under `Failed` after processing.
@@ -215,7 +217,7 @@ Elapsed: 0.1s
 [Enter] Back to menu
 [0] Exit
 
-Ans:
+Action:
 ```
 
 When something failed, a `Skipped` and/or `Failed` list appears after `Outputs`, and `[0]` changes to `[0] Save error log & back to menu`:
@@ -233,7 +235,7 @@ Elapsed: 0.4s
 [Enter] Back to menu
 [0] Save error log & back to menu
 
-Ans:
+Action:
 ```
 
 - **Skipped** — nothing to do for that file; not a problem.
@@ -348,7 +350,7 @@ script_dir = os.path.dirname(os.path.abspath(
 
 ### Versioning
 
-Format: `v{major}.{minor}_{YYYYMMDD}`. Current: `v2.2_20261113`. Update the `VERSION` constant in `PDF Tools.py`, `version_info.txt`, `PDF Tools Instruction.txt` and this file.
+Format: `v{major}.{minor}_{YYYYMMDD}`. Current: `v2.3_20261115`. Update the `VERSION` constant in `PDF Tools.py`, `version_info.txt`, `PDF Tools Instruction.txt` and this file.
 
 ### Packaging
 
@@ -387,7 +389,7 @@ Python 3.8+. Microsoft Excel and Word required on the machine running the script
 - Screen clearing uses the Windows `cls` command: it works when double-clicked or run in cmd / PowerShell, not in an IDE output panel.
 
 ---
-**Version:** v2.2_20261113
+**Version:** v2.3_20261115
 
 **Author:** Yeoh Huey Sun
 **Email:** greyw901@gmail.com

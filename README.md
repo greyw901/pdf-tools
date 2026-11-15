@@ -25,6 +25,8 @@ Every tool follows the same four steps:
 PDF Tools
 ========================================================
 
+Select tool:
+
 +-------------------------------+-------------------------------+
 | BASIC                         | ADVANCE                       |
 +-------------------------------+-------------------------------+
@@ -40,7 +42,7 @@ PDF Tools
 [#] Select
 [0] Exit
 
-Ans:
+Tool:
 ```
 
 Anything in `[ ]` is a key you press, and the keys mean the same on every screen:
@@ -115,9 +117,14 @@ A failed file never stops the others. It is listed under `Failed:` with the reas
 
 The password you set is included in the output filename (e.g. `Report_pw_ABCd123.pdf`) so you can see it at a glance. Strip it from the filename before sending the file to anyone else. Unprotect PDF removes the `_pw_...` part again when it writes the unlocked copy.
 
+## What's new in v2.3
+
+- The main menu asks `Select tool:` and the prompt is `Tool:`.
+- Screens where you only press a key (Unreadable, Confirm, result) now prompt `Action:` instead of `Ans:`.
+
 ## What's new in v2.2
 
-- Every screen is cleared and redrawn with the tool name on top and what you have picked so far; the prompt names what you are typing (`Pages:`, `Ans:`).
+- Every screen is cleared and redrawn with the tool name on top and what you have picked so far; the prompt names what you are typing (`Pages:`, `Tool:`; `Action:` where you only press a key).
 - A wrong entry redraws the same screen with `Error: Invalid Input` and the reason.
 - The result screen offers `[0] Exit` when nothing failed, so you can close straight from there.
 - Merge and Rotate outputs are now `Report_merged.pdf` / `Report_rotated.pdf`.
@@ -143,7 +150,7 @@ The password you set is included in the output filename (e.g. `Report_pw_ABCd123
 
 ---
 
-**Version:** v2.2_20261113
+**Version:** v2.3_20261115
 
 **Author:** Yeoh Huey Sun <br>
 **Email:** greyw901@gmail.com <br>
